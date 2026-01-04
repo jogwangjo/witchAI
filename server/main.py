@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 import json
 import os
 from dotenv import load_dotenv
+from mcp.server.fastmcp.server import SSEAsgiApp
 
 # .env 파일 로드
 load_dotenv()
@@ -367,23 +368,8 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-def get_asgi_app():
-    # 1. 최신 SDK에서 제공하는 공식 속성 확인
-    if hasattr(mcp, "app"):
-        return mcp.app
-    # 2. 내부 속성 확인
-    if hasattr(mcp, "_app"):
-        return mcp._app
-    # 3. 구버전 또는 특수 버전 대응
-    try:
-        return mcp.get_ls_app()
-    except AttributeError:
-        # 모든 시도가 실패할 경우 mcp 객체 자체를 반환 (일부 환경용)
-        return mcp
-
-# uvicorn이 참조할 'app' 변수 정의
-app = get_asgi_app()
+app = SSEAsgiApp(mcp.server, mcp.server.name)
 
 if __name__ == "__main__":
-    # 로컬 실행 시에는 mcp.run()을 사용하되, Railway에서는 railway.json의 명령어를 따릅니다.
+    # 로컬 실행 시
     mcp.run(transport='sse')
