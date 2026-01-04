@@ -367,20 +367,23 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-# 파일 최하단
+def get_asgi_app():
+    # 1. 최신 SDK에서 제공하는 공식 속성 확인
+    if hasattr(mcp, "app"):
+        return mcp.app
+    # 2. 내부 속성 확인
+    if hasattr(mcp, "_app"):
+        return mcp._app
+    # 3. 구버전 또는 특수 버전 대응
+    try:
+        return mcp.get_ls_app()
+    except AttributeError:
+        # 모든 시도가 실패할 경우 mcp 객체 자체를 반환 (일부 환경용)
+        return mcp
+
+# uvicorn이 참조할 'app' 변수 정의
+app = get_asgi_app()
+
 if __name__ == "__main__":
-    import os
-    
-    # 1. Railway가 부여한 PORT 환경변수를 읽어옵니다. 없으면 8000을 씁니다.
-    port_env = os.environ.get("PORT", "8000")
-    port = int(port_env)
-    
-    # 2. host를 "0.0.0.0"으로 강제 지정합니다. (중요!)
-    # transport='sse'를 명시하여 HTTP 통신 모드로 설정합니다.
-    print(f"📡 Railway 배포 모드: 호스트 0.0.0.0, 포트 {port}로 서버를 시작합니다.")
-    
-    mcp.run(
-        transport='sse',
-        host="0.0.0.0",
-        port=port
-    )
+    # 로컬 실행 시에는 mcp.run()을 사용하되, Railway에서는 railway.json의 명령어를 따릅니다.
+    mcp.run(transport='sse')
