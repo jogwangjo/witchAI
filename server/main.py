@@ -368,20 +368,16 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
 
 # 서버 실행
 if __name__ == "__main__":
-    import sys
+    import uvicorn
     import os
     
     # 환경변수 로드
     from dotenv import load_dotenv
     load_dotenv()
     
-    # Railway 환경변수 설정 ⭐
-    port = os.getenv("PORT", "8000")
-    host = os.getenv("HOST", "0.0.0.0")
-    
-    # 환경변수로 설정 (FastMCP가 내부적으로 읽음) ⭐
-    os.environ["HOST"] = host
-    os.environ["PORT"] = str(port)
+    # Railway 환경 감지 ⭐
+    port = int(os.getenv("PORT", 8000))
+    host = "0.0.0.0"  # Railway는 항상 0.0.0.0
     
     print("🚀 AI Recommender MCP Server Starting...")
     print(f"🌐 Binding to {host}:{port}")
@@ -395,5 +391,10 @@ if __name__ == "__main__":
     print("   4. get_ai_rankings - 실시간 모델 순위")
     print("   5. recommend_ai_for_task - 작업별 AI 추천")
     
-    # host, port 파라미터 제거 ⭐
-    mcp.run(transport='sse')
+    # Uvicorn으로 직접 실행 ⭐
+    uvicorn.run(
+        "main:mcp",  # 모듈:변수명
+        host=host,
+        port=port,
+        log_level="info"
+    )
