@@ -367,30 +367,27 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-if __name__ == "__main__":
-    # ⭐ uvicorn 패치 방식으로 변경
-    import uvicorn
-    
-    # uvicorn 모듈의 run 함수를 패치
-    original_uvicorn_run = uvicorn.run
-    
-    def patched_run(app, **kwargs):
-        # host와 port 강제 설정
-        kwargs['host'] = "0.0.0.0"
-        kwargs['port'] = int(os.getenv("PORT", 8000))
-        print(f"🔧 Forcing bind to {kwargs['host']}:{kwargs['port']}")
-        return original_uvicorn_run(app, **kwargs)
-    
-    # uvicorn.run 교체
-    uvicorn.run = patched_run
-    
-    print("🚀 AI Recommender MCP Server Starting...")
-    print("📡 Tools available:")
-    print("   1. search_ai_models")
-    print("   2. search_ai_tools")
-    print("   3. get_latest_ai_news")
-    print("   4. get_ai_rankings")
-    print("   5. recommend_ai_for_task")
-    
-    # 이제 mcp.run()이 패치된 uvicorn.run 사용
-    mcp.run(transport='sse')
+try:
+    app = mcp._app  # FastMCP 내부 앱
+except:
+    try:
+        app = mcp.app
+    except:
+        # 최후의 수단: 단순 ASGI 앱 생성
+        from starlette.applications import Starlette
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+        
+        async def health(request):
+            return JSONResponse({"status": "ok", "tools": [
+                "search_ai_models",
+                "search_ai_tools", 
+                "get_latest_ai_news",
+                "get_ai_rankings",
+                "recommend_ai_for_task"
+            ]})
+        
+        app = Starlette(routes=[
+            Route('/', health),
+            Route('/health', health),
+        ])
