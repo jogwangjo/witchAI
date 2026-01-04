@@ -18,32 +18,35 @@ class PatchedFastMCP(OriginalFastMCP):
         
         print(f"🔧 Patched run: {host}:{port}")
         
-        # 내부 앱 생성 후 uvicorn 직접 실행
-        import uvicorn
-        from starlette.applications import Starlette
-        from starlette.routing import Route
-        from starlette.responses import JSONResponse
-        
-        # MCP 서버의 내부 라우트 가져오기
+        # ⭐ 원본 FastMCP의 내부 앱 가져오기
         try:
-            # FastMCP 내부 구조에 접근
-            routes = []
+            # FastMCP는 내부적으로 Starlette 앱을 생성함
+            # 부모 클래스의 초기화 로직 활용
+            import inspect
             
-            # SSE 엔드포인트 추가
-            async def sse_endpoint(request):
-                return JSONResponse({"status": "MCP Server Running"})
+            # 원본 run() 메서드 찾기
+            original_method = super().__getattribute__('run')
             
-            routes.append(Route("/sse", sse_endpoint))
-            routes.append(Route("/", sse_endpoint))
+            # uvicorn import
+            import uvicorn as uv
             
-            app = Starlette(routes=routes)
+            # uvicorn.run을 패치해서 host/port 강제 변경
+            original_uvicorn_run = uv.run
             
-            uvicorn.run(app, host=host, port=port, log_level="info")
+            def patched_uvicorn_run(app, **kwargs):
+                kwargs['host'] = host
+                kwargs['port'] = port
+                return original_uvicorn_run(app, **kwargs)
+            
+            uv.run = patched_uvicorn_run
+            
+            # 원본 run() 호출 (이제 패치된 uvicorn 사용)
+            original_method(transport=transport)
             
         except Exception as e:
-            print(f"Error in patched run: {e}")
-            # 폴백: 원본 실행
-            super().run(transport=transport)
+            print(f"❌ Patch failed: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 
