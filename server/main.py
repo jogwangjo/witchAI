@@ -14,6 +14,7 @@ load_dotenv()
 # MCP 서버 초기화
 mcp = FastMCP("AI-Recommender-MCP")
 
+app = None
 
 # 환경변수 사용
 github_token = os.getenv("GITHUB_TOKEN")
@@ -367,19 +368,31 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
 if __name__ == "__main__":
-    import os
-    from dotenv import load_dotenv
+    import uvicorn
     
-    load_dotenv()
-    
-    # 환경변수 강제 설정 ⭐
-    os.environ["MCP_HOST"] = "0.0.0.0"
-    os.environ["MCP_PORT"] = str(os.getenv("PORT", 8000))
+    # Railway 환경 감지
+    port = int(os.getenv("PORT", 8000))
+    host = "0.0.0.0"
     
     print("🚀 AI Recommender MCP Server Starting...")
-    print(f"🌐 Binding to 0.0.0.0:{os.environ['MCP_PORT']}")
+    print(f"🌐 Binding to {host}:{port}")
     print("📡 Endpoints:")
-    print(f"   - SSE: http://0.0.0.0:{os.environ['MCP_PORT']}/sse")
-    print(f"   - Docs: http://0.0.0.0:{os.environ['MCP_PORT']}/docs")
+    print(f"   - SSE: http://{host}:{port}/sse")
+    print(f"   - Docs: http://{host}:{port}/docs")
+    print("\n💡 Tools available:")
+    print("   1. search_ai_models - HuggingFace 모델 검색")
+    print("   2. search_ai_tools - GitHub AI 도구 검색")
+    print("   3. get_latest_ai_news - arXiv 최신 논문")
+    print("   4. get_ai_rankings - 실시간 모델 순위")
+    print("   5. recommend_ai_for_task - 작업별 AI 추천")
     
-    mcp.run(transport='sse')
+    # ASGI 앱 생성 ⭐
+    app = mcp.get_asgi_app()
+    
+    # Uvicorn으로 직접 실행 ⭐
+    uvicorn.run(
+        app,  # 객체 직접 전달
+        host=host,
+        port=port,
+        log_level="info"
+    )
