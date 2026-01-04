@@ -367,7 +367,8 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-try:
-    app = mcp.app
-except AttributeError:
-    app = mcp._app
+# 파일 최하단
+if __name__ == "__main__":
+    # FastMCP의 run 메서드는 Railway가 제공하는 PORT 환경변수를 자동으로 인식합니다.
+    # 별도의 app 변수 설정 없이 이 명령만으로 uvicorn 서버가 내부에서 실행됩니다.
+    mcp.run(transport='sse')
