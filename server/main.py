@@ -391,10 +391,12 @@ if __name__ == "__main__":
     print("   4. get_ai_rankings - 실시간 모델 순위")
     print("   5. recommend_ai_for_task - 작업별 AI 추천")
     
+    app = mcp.get_asgi_app()
+
     # Uvicorn으로 직접 실행 ⭐
     uvicorn.run(
-        "main:mcp",  # 모듈:변수명
+        app,  # ⭐ ASGI 앱 객체 직접 전달
         host=host,
         port=port,
         log_level="info"
-    )
+    )   
