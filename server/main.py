@@ -367,27 +367,4 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-try:
-    app = mcp._app  # FastMCP 내부 앱
-except:
-    try:
-        app = mcp.app
-    except:
-        # 최후의 수단: 단순 ASGI 앱 생성
-        from starlette.applications import Starlette
-        from starlette.responses import JSONResponse
-        from starlette.routing import Route
-        
-        async def health(request):
-            return JSONResponse({"status": "ok", "tools": [
-                "search_ai_models",
-                "search_ai_tools", 
-                "get_latest_ai_news",
-                "get_ai_rankings",
-                "recommend_ai_for_task"
-            ]})
-        
-        app = Starlette(routes=[
-            Route('/', health),
-            Route('/health', health),
-        ])
+app = mcp.get_ls_app()
