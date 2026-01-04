@@ -375,9 +375,13 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     
-    # Railway 환경 감지 
-    port = int(os.getenv("PORT", 8000))
+    # Railway 환경변수 설정 ⭐
+    port = os.getenv("PORT", "8000")
     host = os.getenv("HOST", "0.0.0.0")
+    
+    # 환경변수로 설정 (FastMCP가 내부적으로 읽음) ⭐
+    os.environ["HOST"] = host
+    os.environ["PORT"] = str(port)
     
     print("🚀 AI Recommender MCP Server Starting...")
     print(f"🌐 Binding to {host}:{port}")
@@ -391,4 +395,5 @@ if __name__ == "__main__":
     print("   4. get_ai_rankings - 실시간 모델 순위")
     print("   5. recommend_ai_for_task - 작업별 AI 추천")
     
-    mcp.run(transport='sse', host=host, port = port) 
+    # host, port 파라미터 제거 ⭐
+    mcp.run(transport='sse')
