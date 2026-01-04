@@ -7,50 +7,6 @@ from bs4 import BeautifulSoup
 import json
 import os
 from dotenv import load_dotenv
-import uvicorn
-from mcp.server.fastmcp import FastMCP as OriginalFastMCP
-
-class PatchedFastMCP(OriginalFastMCP):
-    def run(self, transport='sse'):
-        """Railway 호환 run 메서드"""
-        port = int(os.getenv("PORT", 8000))
-        host = "0.0.0.0"
-        
-        print(f"🔧 Patched run: {host}:{port}")
-        
-        # ⭐ 원본 FastMCP의 내부 앱 가져오기
-        try:
-            # FastMCP는 내부적으로 Starlette 앱을 생성함
-            # 부모 클래스의 초기화 로직 활용
-            import inspect
-            
-            # 원본 run() 메서드 찾기
-            original_method = super().__getattribute__('run')
-            
-            # uvicorn import
-            import uvicorn as uv
-            
-            # uvicorn.run을 패치해서 host/port 강제 변경
-            original_uvicorn_run = uv.run
-            
-            def patched_uvicorn_run(app, **kwargs):
-                kwargs['host'] = host
-                kwargs['port'] = port
-                return original_uvicorn_run(app, **kwargs)
-            
-            uv.run = patched_uvicorn_run
-            
-            # 원본 run() 호출 (이제 패치된 uvicorn 사용)
-            original_method(transport=transport)
-            
-        except Exception as e:
-            print(f"❌ Patch failed: {e}")
-            import traceback
-            traceback.print_exc()
-
-
-
-FastMCP = PatchedFastMCP
 
 # .env 파일 로드
 load_dotenv()
@@ -412,6 +368,22 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
 if __name__ == "__main__":
+    # ⭐ uvicorn 패치 방식으로 변경
+    import uvicorn
+    
+    # uvicorn 모듈의 run 함수를 패치
+    original_uvicorn_run = uvicorn.run
+    
+    def patched_run(app, **kwargs):
+        # host와 port 강제 설정
+        kwargs['host'] = "0.0.0.0"
+        kwargs['port'] = int(os.getenv("PORT", 8000))
+        print(f"🔧 Forcing bind to {kwargs['host']}:{kwargs['port']}")
+        return original_uvicorn_run(app, **kwargs)
+    
+    # uvicorn.run 교체
+    uvicorn.run = patched_run
+    
     print("🚀 AI Recommender MCP Server Starting...")
     print("📡 Tools available:")
     print("   1. search_ai_models")
@@ -420,5 +392,5 @@ if __name__ == "__main__":
     print("   4. get_ai_rankings")
     print("   5. recommend_ai_for_task")
     
-    # 그냥 실행 (환경변수가 알아서 처리)
+    # 이제 mcp.run()이 패치된 uvicorn.run 사용
     mcp.run(transport='sse')
