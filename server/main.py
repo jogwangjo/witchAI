@@ -8,11 +8,12 @@ import json
 import os
 from dotenv import load_dotenv
 
+# .env 파일 로드
+load_dotenv()
+
 # MCP 서버 초기화
 mcp = FastMCP("AI-Recommender-MCP")
 
-# .env 파일 로드
-load_dotenv()
 
 # 환경변수 사용
 github_token = os.getenv("GITHUB_TOKEN")
@@ -368,15 +369,21 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
 # 서버 실행
 if __name__ == "__main__":
     import sys
+    import os
     
     # 환경변수 로드
     from dotenv import load_dotenv
     load_dotenv()
     
+    # Railway 환경 감지 
+    port = int(os.getenv("PORT", 8000))
+    host = os.getenv("HOST", "0.0.0.0")
+    
     print("🚀 AI Recommender MCP Server Starting...")
+    print(f"🌐 Binding to {host}:{port}")
     print("📡 Endpoints:")
-    print("   - SSE: http://localhost:8000/sse")
-    print("   - Docs: http://localhost:8000/docs")
+    print(f"   - SSE: http://{host}:{port}/sse")
+    print(f"   - Docs: http://{host}:{port}/docs")
     print("\n💡 Tools available:")
     print("   1. search_ai_models - HuggingFace 모델 검색")
     print("   2. search_ai_tools - GitHub AI 도구 검색")
@@ -384,4 +391,4 @@ if __name__ == "__main__":
     print("   4. get_ai_rankings - 실시간 모델 순위")
     print("   5. recommend_ai_for_task - 작업별 AI 추천")
     
-    mcp.run(transport='sse')
+    mcp.run(transport='sse', host=host, port=port) 
