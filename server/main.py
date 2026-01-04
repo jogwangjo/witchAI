@@ -391,4 +391,4 @@ if __name__ == "__main__":
     print("   4. get_ai_rankings - 실시간 모델 순위")
     print("   5. recommend_ai_for_task - 작업별 AI 추천")
     
-    mcp.run(transport='sse', host=host, port=port) 
+    mcp.run(transport='sse', host=HOST, port=PORT) 
