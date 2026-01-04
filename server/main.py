@@ -367,4 +367,7 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-app = mcp.get_ls_app()
+try:
+    app = mcp.app
+except AttributeError:
+    app = mcp._app
