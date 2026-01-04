@@ -368,56 +368,13 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
 if __name__ == "__main__":
-    import uvicorn
-    
-    # Railway 환경 감지
-    port = int(os.getenv("PORT", 8000))
-    host = "0.0.0.0"
-    
     print("🚀 AI Recommender MCP Server Starting...")
-    print(f"🌐 Binding to {host}:{port}")
-    print("📡 Endpoints:")
-    print(f"   - SSE: http://{host}:{port}/sse")
-    print(f"   - Docs: http://{host}:{port}/docs")
-    print("\n💡 Tools available:")
-    print("   1. search_ai_models - HuggingFace 모델 검색")
-    print("   2. search_ai_tools - GitHub AI 도구 검색")
-    print("   3. get_latest_ai_news - arXiv 최신 논문")
-    print("   4. get_ai_rankings - 실시간 모델 순위")
-    print("   5. recommend_ai_for_task - 작업별 AI 추천")
+    print("📡 Tools available:")
+    print("   1. search_ai_models")
+    print("   2. search_ai_tools")
+    print("   3. get_latest_ai_news")
+    print("   4. get_ai_rankings")
+    print("   5. recommend_ai_for_task")
     
-    # FastMCP 내부 앱 접근 ⭐
-    try:
-        # 방법 1: _app 속성 시도
-        app = mcp._app
-    except AttributeError:
-        try:
-            # 방법 2: app 속성 시도
-            app = mcp.app
-        except AttributeError:
-            # 방법 3: 직접 실행
-            print("⚠️  Direct app access failed, using mcp.run()")
-            
-            # 환경변수 설정하고 mcp.run() 사용
-            import sys
-            sys.argv = ["main.py"]  # CLI 인자 초기화
-            
-            # run() 함수 패치 ⭐
-            original_run = mcp.run
-            
-            def patched_run(*args, **kwargs):
-                kwargs['host'] = host
-                kwargs['port'] = port
-                return original_run(*args, **kwargs)
-            
-            mcp.run = patched_run
-            mcp.run(transport='sse')
-            sys.exit(0)
-    
-    # 앱을 찾았으면 uvicorn으로 실행
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        log_level="info"
-    )
+    # 그냥 실행 (환경변수가 알아서 처리)
+    mcp.run(transport='sse')
