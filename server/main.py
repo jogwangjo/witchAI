@@ -386,12 +386,37 @@ if __name__ == "__main__":
     print("   4. get_ai_rankings - 실시간 모델 순위")
     print("   5. recommend_ai_for_task - 작업별 AI 추천")
     
-    # ASGI 앱 생성 ⭐
-    app = mcp.get_asgi_app()
+    # FastMCP 내부 앱 접근 ⭐
+    try:
+        # 방법 1: _app 속성 시도
+        app = mcp._app
+    except AttributeError:
+        try:
+            # 방법 2: app 속성 시도
+            app = mcp.app
+        except AttributeError:
+            # 방법 3: 직접 실행
+            print("⚠️  Direct app access failed, using mcp.run()")
+            
+            # 환경변수 설정하고 mcp.run() 사용
+            import sys
+            sys.argv = ["main.py"]  # CLI 인자 초기화
+            
+            # run() 함수 패치 ⭐
+            original_run = mcp.run
+            
+            def patched_run(*args, **kwargs):
+                kwargs['host'] = host
+                kwargs['port'] = port
+                return original_run(*args, **kwargs)
+            
+            mcp.run = patched_run
+            mcp.run(transport='sse')
+            sys.exit(0)
     
-    # Uvicorn으로 직접 실행 ⭐
+    # 앱을 찾았으면 uvicorn으로 실행
     uvicorn.run(
-        app,  # 객체 직접 전달
+        app,
         host=host,
         port=port,
         log_level="info"
