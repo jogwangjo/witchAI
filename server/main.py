@@ -369,6 +369,18 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
 
 # 파일 최하단
 if __name__ == "__main__":
-    # FastMCP의 run 메서드는 Railway가 제공하는 PORT 환경변수를 자동으로 인식합니다.
-    # 별도의 app 변수 설정 없이 이 명령만으로 uvicorn 서버가 내부에서 실행됩니다.
-    mcp.run(transport='sse')
+    import os
+    
+    # 1. Railway가 부여한 PORT 환경변수를 읽어옵니다. 없으면 8000을 씁니다.
+    port_env = os.environ.get("PORT", "8000")
+    port = int(port_env)
+    
+    # 2. host를 "0.0.0.0"으로 강제 지정합니다. (중요!)
+    # transport='sse'를 명시하여 HTTP 통신 모드로 설정합니다.
+    print(f"📡 Railway 배포 모드: 호스트 0.0.0.0, 포트 {port}로 서버를 시작합니다.")
+    
+    mcp.run(
+        transport='sse',
+        host="0.0.0.0",
+        port=port
+    )
