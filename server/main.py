@@ -367,40 +367,188 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-# ⭐ FastMCP가 내부적으로 생성하는 ASGI 앱 노출
 def get_mcp_app():
-    """FastMCP의 실제 ASGI 앱 가져오기"""
-    import inspect
+    """MCP 프로토콜 호환 ASGI 앱"""
     from starlette.applications import Starlette
+    from starlette.routing import Route
+    from starlette.responses import StreamingResponse, JSONResponse
+    from starlette.requests import Request
+    import json
     
-    # FastMCP 인스턴스에서 routes 추출
-    try:
-        # FastMCP의 내부 메서드 호출하여 앱 생성
-        # run() 메서드가 내부적으로 만드는 앱과 동일하게
-        from mcp.server.sse import create_sse_server
+    async def sse_endpoint(request: Request):
+        """SSE 엔드포인트 - MCP 클라이언트 연결"""
         
-        # SSE 서버 생성 (FastMCP가 내부적으로 하는 것)
-        sse_app = create_sse_server(mcp.server)
-        return sse_app
+        async def event_generator():
+            # SSE 초기화
+            yield 'data: {"jsonrpc":"2.0","method":"notifications/initialized"}\n\n'
+            
+            # Keep-alive
+            try:
+                while True:
+                    await asyncio.sleep(30)
+                    yield ': keepalive\n\n'
+            except asyncio.CancelledError:
+                pass
         
-    except Exception as e:
-        print(f"⚠️  FastMCP 앱 생성 실패: {e}")
-        
-        # 폴백: 기본 health check만
-        from starlette.applications import Starlette
-        from starlette.routing import Route
-        from starlette.responses import JSONResponse
-        
-        async def health(request):
+        return StreamingResponse(
+            event_generator(),
+            media_type='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'Content-Type': 'text/event-stream',
+                'X-Accel-Buffering': 'no',  # Nginx buffering 방지
+            }
+        )
+    
+    async def message_endpoint(request: Request):
+        """MCP 메시지 처리"""
+        try:
+            body = await request.json()
+            
+            # MCP 요청 처리
+            if body.get('method') == 'tools/list':
+                # 도구 목록 반환
+                return JSONResponse({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "search_ai_models",
+                                "description": "Hugging Face에서 AI 모델 검색",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {"type": "string"},
+                                        "category": {"type": "string"},
+                                        "limit": {"type": "integer"}
+                                    }
+                                }
+                            },
+                            {
+                                "name": "search_ai_tools",
+                                "description": "GitHub에서 AI 도구 검색",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {"type": "string"},
+                                        "source": {"type": "string"},
+                                        "limit": {"type": "integer"}
+                                    }
+                                }
+                            },
+                            {
+                                "name": "get_latest_ai_news",
+                                "description": "최신 AI 논문 가져오기",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "category": {"type": "string"},
+                                        "limit": {"type": "integer"}
+                                    }
+                                }
+                            },
+                            {
+                                "name": "get_ai_rankings",
+                                "description": "AI 모델 순위 조회",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "benchmark": {"type": "string"}
+                                    }
+                                }
+                            },
+                            {
+                                "name": "recommend_ai_for_task",
+                                "description": "작업에 맞는 AI 추천",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "task": {"type": "string"},
+                                        "budget": {"type": "string"},
+                                        "priority": {"type": "string"}
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                })
+            
+            elif body.get('method') == 'tools/call':
+                # 도구 실행
+                tool_name = body.get('params', {}).get('name')
+                arguments = body.get('params', {}).get('arguments', {})
+                
+                # 도구 실행
+                result = None
+                if tool_name == 'search_ai_models':
+                    result = await search_ai_models(**arguments)
+                elif tool_name == 'search_ai_tools':
+                    result = await search_ai_tools(**arguments)
+                elif tool_name == 'get_latest_ai_news':
+                    result = await get_latest_ai_news(**arguments)
+                elif tool_name == 'get_ai_rankings':
+                    result = await get_ai_rankings(**arguments)
+                elif tool_name == 'recommend_ai_for_task':
+                    result = await recommend_ai_for_task(**arguments)
+                
+                return JSONResponse({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": str(result)
+                            }
+                        ]
+                    }
+                })
+            
+            # 기타 요청
             return JSONResponse({
-                "service": "AI Recommender MCP",
-                "status": "running",
-                "tools": ["search_ai_models", "search_ai_tools", "get_latest_ai_news", "get_ai_rankings", "recommend_ai_for_task"]
+                "jsonrpc": "2.0",
+                "id": body.get("id"),
+                "result": {}
             })
-        
-        return Starlette(routes=[Route("/", health)])
+            
+        except Exception as e:
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": body.get("id", None),
+                "error": {
+                    "code": -32603,
+                    "message": str(e)
+                }
+            }, status_code=500)
+    
+    async def health_check(request: Request):
+        """Health check"""
+        return JSONResponse({
+            "service": "AI Recommender MCP",
+            "status": "running",
+            "version": "1.0.0",
+            "tools": [
+                "search_ai_models",
+                "search_ai_tools",
+                "get_latest_ai_news",
+                "get_ai_rankings",
+                "recommend_ai_for_task"
+            ]
+        })
+    
+    app = Starlette(
+        routes=[
+            Route("/", health_check, methods=["GET"]),
+            Route("/sse", sse_endpoint, methods=["GET"]),
+            Route("/message", message_endpoint, methods=["POST"]),
+        ]
+    )
+    
+    return app
 
-# uvicorn이 import할 앱 ⭐
+# uvicorn이 import할 앱
 app = get_mcp_app()
 
 if __name__ == "__main__":
