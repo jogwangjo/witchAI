@@ -91,7 +91,26 @@ async def recommend_model(task: str):
     """작업에 최적화된 모델을 추천합니다."""
     return await recommend_model_for_task(task)
 
-
+def get_mcp_app():
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+    from starlette.responses import JSONResponse
+    from starlette.requests import Request
+    
+    async def health_check(request: Request):
+        return JSONResponse({"status": "ok", "service": "AI Recommender MCP"})
+    
+    async def root_handler(request: Request):
+        if request.method == "GET":
+            return await health_check(request)
+        return JSONResponse({"error": "Use GET for health check"}, status_code=405)
+    
+    return Starlette(
+        routes=[
+            Route("/", root_handler, methods=["GET", "POST"]),
+        ]
+    )
+    
 app = get_mcp_app()
 
 # =========================
