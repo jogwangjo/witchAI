@@ -101,30 +101,30 @@ def get_mcp_app():
         return JSONResponse({"status": "ok", "service": "AI Recommender MCP"})
     
     async def root_handler(request: Request):
-    if request.method == "GET":
-        return await health_check(request)
-    elif request.method == "POST":
-        # MCP 메시지 처리
-        body = await request.json()
-        return JSONResponse({
-            "jsonrpc": "2.0",
-            "id": body.get("id"),
-            "result": {
-                "tools": [
-                    {"name": "list_ai_agents", "description": "AI Agent 목록 조회"},
-                    {"name": "search_ai_agents", "description": "AI Agent 검색"},
-                    {"name": "recommend_ai_agent", "description": "작업에 맞는 Agent 추천"},
-                    {"name": "get_ai_news", "description": "최신 AI 뉴스"},
-                    {"name": "get_trending_models", "description": "트렌딩 모델"},
-                    {"name": "search_model_for_task", "description": "작업용 모델 검색"},
-                    {"name": "latest_ai_research", "description": "최신 AI 연구"},
-                    {"name": "ai_overview", "description": "AI 생태계 업데이트"},
-                    {"name": "realtime_model_rankings", "description": "실시간 모델 순위"},
-                    {"name": "recommend_model", "description": "모델 추천"}
-                ]
-            }
-        })
-    return JSONResponse({"error": "Method not allowed"}, status_code=405)
+        if request.method == "GET":
+            return await health_check(request)
+        elif request.method == "POST":
+            # MCP 메시지 처리
+            body = await request.json()
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": body.get("id"),
+                "result": {
+                    "tools": [
+                        {"name": "list_ai_agents", "description": "AI Agent 목록 조회"},
+                        {"name": "search_ai_agents", "description": "AI Agent 검색"},
+                        {"name": "recommend_ai_agent", "description": "작업에 맞는 Agent 추천"},
+                        {"name": "get_ai_news", "description": "최신 AI 뉴스"},
+                        {"name": "get_trending_models", "description": "트렌딩 모델"},
+                        {"name": "search_model_for_task", "description": "작업용 모델 검색"},
+                        {"name": "latest_ai_research", "description": "최신 AI 연구"},
+                        {"name": "ai_overview", "description": "AI 생태계 업데이트"},
+                        {"name": "realtime_model_rankings", "description": "실시간 모델 순위"},
+                        {"name": "recommend_model", "description": "모델 추천"}
+                    ]
+                }
+            })
+        return JSONResponse({"error": "Method not allowed"}, status_code=405)
     
     return Starlette(
         routes=[
