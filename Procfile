@@ -1,1 +1,1 @@
-web: cd server && MCP_MODE=sse python main.py
+web: cd server && python main.py
