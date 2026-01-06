@@ -548,19 +548,23 @@ def get_mcp_app():
     
     return app
 
+# ==================== 앱 인스턴스 생성 (모듈 레벨) ====================
+# Koyeb, uvicorn 등에서 import할 수 있도록 모듈 레벨에 배치
+app = get_mcp_app()
+
 # ==================== 메인 실행 ====================
 
 if __name__ == "__main__":
     import sys
     
-    # 로컬 테스트용 - MCP Inspector 연결
-    if "--stdio" in sys.argv or len(sys.argv) == 1:
-        import sys
+    # HTTP 서버 모드 (--http 플래그)
+    if "--http" in sys.argv:
+        print("🚀 HTTP 서버 모드 시작", file=sys.stderr)
+        print("📍 http://localhost:8000 에서 실행 중", file=sys.stderr)
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    else:
+        # 로컬 테스트용 - MCP Inspector stdio 연결
         print("🔧 MCP stdio mode - Inspector 연결 가능", file=sys.stderr)
         print("📍 사용법: npx @modelcontextprotocol/inspector python main.py", file=sys.stderr)
         mcp.run()  # FastMCP의 기본 stdio 모드
-    else:
-        # Koyeb 배포용 - HTTP 서버
-        print("🚀 HTTP 서버 모드")
-        print("사용법: uvicorn main:app --host 0.0.0.0 --port 8000")
-        app = get_mcp_app()
