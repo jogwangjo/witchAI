@@ -85,12 +85,13 @@ async def recommend_model(task: str):
 # Run
 # =========================
 if __name__ == "__main__":
-    mode = os.getenv("MCP_MODE", "http")
+    import os
 
-    if mode == "stdio":
-        mcp.run()
+    mode = os.getenv("MCP_MODE", "stdio")
+
+    if mode == "http":
+        # Koyeb / PlayMCP 용
+        mcp.run(transport="http")
     else:
-        mcp.run(
-            transport="http",
-            path="/mcp"
-        )
+        # MCP Inspector 용
+        mcp.run()
