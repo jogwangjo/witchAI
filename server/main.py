@@ -370,6 +370,19 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
 
 app = SSEAsgiApp(mcp.server, mcp.server.name)
 
+# server/main.py 맨 아래
 if __name__ == "__main__":
-    # 로컬 실행 시
-    mcp.run(transport='sse')
+    import sys
+    import os
+    
+    # PORT 환경변수 사용 (Koyeb, Railway 등)
+    port = int(os.getenv("PORT", 8000))
+    
+    print(f"🚀 Starting on port {port}")
+    
+    # 배포 환경에서는 uvicorn이 직접 app을 실행
+    # 로컬 테스트용
+    if "--local" in sys.argv:
+        mcp.run(transport='sse', port=port)
+    else:
+        print("Ready for uvicorn")
