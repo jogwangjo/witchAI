@@ -104,7 +104,8 @@ if __name__ == "__main__":
         # 로컬 SSE 테스트용
         port = int(os.getenv("PORT", 8000))
         print(f"📡 SSE server at http://localhost:{port}", file=sys.stderr)
-        mcp.run(transport="sse", port=port)
+        os.environ["PORT"] = str(port)
+        mcp.run(transport="sse")
     else:
         # stdio 모드 (MCP Inspector용)
         print("📟 stdio mode - Connect with MCP Inspector", file=sys.stderr)
