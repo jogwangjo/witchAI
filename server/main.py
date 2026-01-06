@@ -91,12 +91,6 @@ async def recommend_model(task: str):
     """작업에 최적화된 모델을 추천합니다."""
     return await recommend_model_for_task(task)
 
-# =========================
-# ASGI App (Koyeb/PlayMCP용)
-# =========================
-
-# uvicorn이 import할 ASGI 앱 생성
-app = mcp._get_asgi_app()
 
 # =========================
 # Run
