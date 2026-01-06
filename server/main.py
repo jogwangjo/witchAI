@@ -32,7 +32,7 @@ from tools.realtime_collector import (
     recommend_model_for_task,
 )
 
-# 🔴 description 쓰면 안 됨
+# MCP 서버 초기화
 mcp = FastMCP("AI Recommender MCP")
 
 agent_catalog = AIAgentCatalog()
@@ -43,53 +43,75 @@ agent_catalog = AIAgentCatalog()
 
 @mcp.tool()
 def list_ai_agents(category: str = "all", subcategory: Optional[str] = None) -> Dict[str, Any]:
+    """AI Agent 목록을 카테고리별로 조회합니다."""
     return agent_catalog.list_agents(category, subcategory)
 
 @mcp.tool()
 def search_ai_agents(query: str) -> Dict[str, Any]:
+    """키워드로 AI Agent를 검색합니다."""
     return agent_catalog.search_agents(query)
 
 @mcp.tool()
-def recommend_ai_agent(task: str, experience_level: str, budget: str) -> Dict[str, Any]:
+def recommend_ai_agent(task: str, experience_level: str = "intermediate", budget: str = "any") -> Dict[str, Any]:
+    """특정 작업에 맞는 AI Agent를 추천합니다."""
     return agent_catalog.recommend_for_task(task, experience_level, budget)
 
 @mcp.tool()
 async def get_ai_news(category: str = "all", limit: int = 10):
+    """최신 AI 뉴스와 논문을 가져옵니다."""
     return await get_cached_news(category, limit)
 
 @mcp.tool()
 async def get_trending_models(limit: int = 10):
+    """트렌딩 AI 모델을 가져옵니다."""
     return await get_trending_ai_models(limit)
 
 @mcp.tool()
 async def search_model_for_task(task: str):
+    """작업에 맞는 모델을 검색합니다."""
     return await search_models(task)
 
 @mcp.tool()
-async def latest_ai_research(limit: int = 10):
-    return await get_latest_ai_research(limit)
+async def latest_ai_research(max_results: int = 10):
+    """최신 AI 연구 논문을 가져옵니다."""
+    return await get_latest_ai_research(max_results)
 
 @mcp.tool()
 async def ai_overview():
+    """AI 생태계 종합 업데이트를 가져옵니다."""
     return await get_all_updates()
 
 @mcp.tool()
 async def realtime_model_rankings(benchmark: str = "artificial-analysis"):
+    """실시간 AI 모델 순위를 가져옵니다."""
     return await get_realtime_rankings(benchmark)
 
 @mcp.tool()
 async def recommend_model(task: str):
+    """작업에 최적화된 모델을 추천합니다."""
     return await recommend_model_for_task(task)
+
+# =========================
+# ASGI App (Koyeb/PlayMCP용)
+# =========================
+
+# uvicorn이 import할 ASGI 앱 생성
+app = mcp._get_asgi_app()
 
 # =========================
 # Run
 # =========================
 if __name__ == "__main__":
-    import os
-
     mode = os.getenv("MCP_MODE", "stdio")
-
+    
+    print(f"🚀 Starting MCP Server in {mode} mode", file=sys.stderr)
+    
     if mode == "sse":
-        mcp.run(transport="sse")
+        # 로컬 SSE 테스트용
+        port = int(os.getenv("PORT", 8000))
+        print(f"📡 SSE server at http://localhost:{port}", file=sys.stderr)
+        mcp.run(transport="sse", port=port)
     else:
+        # stdio 모드 (MCP Inspector용)
+        print("📟 stdio mode - Connect with MCP Inspector", file=sys.stderr)
         mcp.run()
