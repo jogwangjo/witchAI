@@ -104,24 +104,20 @@ if __name__ == "__main__":
     print(f"🚀 Starting MCP Server in {mode} mode", file=sys.stderr)
     
     if mode == "sse":
-        port = int(os.getenv("PORT", 8000))
-        host = "0.0.0.0"  # 강제로 0.0.0.0
-        
-        print(f"📡 SSE server at http://{host}:{port}", file=sys.stderr)
-        
-        # FastMCP 내부에서 생성하는 앱을 uvicorn으로 직접 실행 ⭐
-        # mcp.run() 대신 uvicorn 직접 사용
-        from mcp.server.sse import create_sse_server
-        
-        app = create_sse_server(mcp.server)
-        
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            log_level="info"
-        )
-    else:
-        # stdio 모드
-        print("📟 stdio mode", file=sys.stderr)
-        mcp.run()
+    port = int(os.getenv("PORT", 8000))
+    host = "0.0.0.0"
+    
+    print(f"📡 SSE server at http://{host}:{port}", file=sys.stderr)
+    
+    # uvicorn 패치 방식 ⭐
+    original_run = uvicorn.run
+    
+    def patched_run(app, **kwargs):
+        kwargs['host'] = host
+        kwargs['port'] = port
+        return original_run(app, **kwargs)
+    
+    uvicorn.run = patched_run
+    
+    # 이제 mcp.run() 호출하면 패치된 uvicorn 사용
+    mcp.run(transport="sse")
