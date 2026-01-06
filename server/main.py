@@ -14,8 +14,6 @@ load_dotenv()
 # MCP 서버 초기화
 mcp = FastMCP("AI-Recommender-MCP")
 
-app = None
-
 # 환경변수 사용
 github_token = os.getenv("GITHUB_TOKEN")
 hf_token = os.getenv("HUGGINGFACE_TOKEN")
@@ -367,6 +365,8 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
+# ==================== HTTP 서버 (Koyeb용) ====================
+
 def get_mcp_app():
     """MCP 프로토콜 호환 ASGI 앱"""
     from starlette.applications import Starlette
@@ -397,7 +397,7 @@ def get_mcp_app():
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive',
                 'Content-Type': 'text/event-stream',
-                'X-Accel-Buffering': 'no',  # Nginx buffering 방지
+                'X-Accel-Buffering': 'no',
             }
         )
     
@@ -548,8 +548,19 @@ def get_mcp_app():
     
     return app
 
-# uvicorn이 import할 앱
-app = get_mcp_app()
+# ==================== 메인 실행 ====================
 
 if __name__ == "__main__":
-    print("🚀 Use: uvicorn main:app --host 0.0.0.0 --port 8000")
+    import sys
+    
+    # 로컬 테스트용 - MCP Inspector 연결
+    if "--stdio" in sys.argv or len(sys.argv) == 1:
+        import sys
+        print("🔧 MCP stdio mode - Inspector 연결 가능", file=sys.stderr)
+        print("📍 사용법: npx @modelcontextprotocol/inspector python main.py", file=sys.stderr)
+        mcp.run()  # FastMCP의 기본 stdio 모드
+    else:
+        # Koyeb 배포용 - HTTP 서버
+        print("🚀 HTTP 서버 모드")
+        print("사용법: uvicorn main:app --host 0.0.0.0 --port 8000")
+        app = get_mcp_app()
