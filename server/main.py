@@ -367,63 +367,41 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-def create_app():
-    """ASGI 앱 생성"""
+# ⭐ FastMCP가 내부적으로 생성하는 ASGI 앱 노출
+def get_mcp_app():
+    """FastMCP의 실제 ASGI 앱 가져오기"""
+    import inspect
     from starlette.applications import Starlette
-    from starlette.routing import Route
-    from starlette.responses import StreamingResponse, JSONResponse
-    import json
     
-    async def sse_endpoint(request):
-        """SSE 엔드포인트"""
-        async def event_stream():
-            # SSE 연결 초기화
-            yield "event: endpoint\ndata: /message\n\n"
-            
-            # Keep-alive
-            while True:
-                yield ": ping\n\n"
-                await asyncio.sleep(30)
+    # FastMCP 인스턴스에서 routes 추출
+    try:
+        # FastMCP의 내부 메서드 호출하여 앱 생성
+        # run() 메서드가 내부적으로 만드는 앱과 동일하게
+        from mcp.server.sse import create_sse_server
         
-        return StreamingResponse(
-            event_stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            }
-        )
-    
-    async def message_endpoint(request):
-        """MCP 메시지 처리"""
-        body = await request.json()
+        # SSE 서버 생성 (FastMCP가 내부적으로 하는 것)
+        sse_app = create_sse_server(mcp.server)
+        return sse_app
         
-        # FastMCP의 handle_request 사용
-        response = await mcp.server.handle_request(body)
+    except Exception as e:
+        print(f"⚠️  FastMCP 앱 생성 실패: {e}")
         
-        return JSONResponse(response)
-    
-    async def health_check(request):
-        """Health check"""
-        return JSONResponse({
-            "service": "AI Recommender MCP",
-            "status": "running",
-            "version": "1.0.0"
-        })
-    
-    app = Starlette(
-        routes=[
-            Route("/", health_check),
-            Route("/sse", sse_endpoint, methods=["GET"]),
-            Route("/message", message_endpoint, methods=["POST"]),
-        ]
-    )
-    
-    return app
+        # 폴백: 기본 health check만
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+        from starlette.responses import JSONResponse
+        
+        async def health(request):
+            return JSONResponse({
+                "service": "AI Recommender MCP",
+                "status": "running",
+                "tools": ["search_ai_models", "search_ai_tools", "get_latest_ai_news", "get_ai_rankings", "recommend_ai_for_task"]
+            })
+        
+        return Starlette(routes=[Route("/", health)])
 
-# uvicorn이 import할 앱
-app = create_app()
+# uvicorn이 import할 앱 ⭐
+app = get_mcp_app()
 
 if __name__ == "__main__":
-    # 로컬 실행용
-    print("🚀 Use uvicorn to start: uvicorn server.main:app --host 0.0.0.0 --port 8000")
+    print("🚀 Use: uvicorn main:app --host 0.0.0.0 --port 8000")
