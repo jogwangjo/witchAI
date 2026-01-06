@@ -162,4 +162,4 @@ if __name__ == "__main__":
         uvicorn.run = patched_run
         
         # 이제 mcp.run() 호출하면 패치된 uvicorn 사용
-        mcp.run(transport="sse")
+        mcp.run(transport="streamable-http")
