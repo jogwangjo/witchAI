@@ -104,20 +104,20 @@ if __name__ == "__main__":
     print(f"🚀 Starting MCP Server in {mode} mode", file=sys.stderr)
     
     if mode == "sse":
-    port = int(os.getenv("PORT", 8000))
-    host = "0.0.0.0"
-    
-    print(f"📡 SSE server at http://{host}:{port}", file=sys.stderr)
-    
-    # uvicorn 패치 방식 ⭐
-    original_run = uvicorn.run
-    
-    def patched_run(app, **kwargs):
-        kwargs['host'] = host
-        kwargs['port'] = port
-        return original_run(app, **kwargs)
-    
-    uvicorn.run = patched_run
-    
-    # 이제 mcp.run() 호출하면 패치된 uvicorn 사용
-    mcp.run(transport="sse")
+        port = int(os.getenv("PORT", 8000))
+        host = "0.0.0.0"
+        
+        print(f"📡 SSE server at http://{host}:{port}", file=sys.stderr)
+        
+        # uvicorn 패치 방식 ⭐
+        original_run = uvicorn.run
+        
+        def patched_run(app, **kwargs):
+            kwargs['host'] = host
+            kwargs['port'] = port
+            return original_run(app, **kwargs)
+        
+        uvicorn.run = patched_run
+        
+        # 이제 mcp.run() 호출하면 패치된 uvicorn 사용
+        mcp.run(transport="sse")
