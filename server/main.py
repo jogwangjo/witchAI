@@ -92,6 +92,8 @@ async def recommend_model(task: str):
     return await recommend_model_for_task(task)
 
 
+app = get_mcp_app()
+
 # =========================
 # Run
 # =========================
