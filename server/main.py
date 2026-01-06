@@ -96,17 +96,32 @@ async def recommend_model(task: str):
 # Run
 # =========================
 if __name__ == "__main__":
-    print("🔥 MAIN BLOCK EXECUTING", file=sys.stderr)  # 추가
+    import uvicorn
+    
     mode = os.getenv("MCP_MODE", "stdio")
+    
+    print(f"🔥 MAIN BLOCK EXECUTING", file=sys.stderr)
     print(f"🚀 Starting MCP Server in {mode} mode", file=sys.stderr)
     
     if mode == "sse":
-        # 로컬 SSE 테스트용
         port = int(os.getenv("PORT", 8000))
-        print(f"📡 SSE server at http://localhost:{port}", file=sys.stderr)
-        os.environ["PORT"] = str(port)
-        mcp.run(transport="sse")
+        host = "0.0.0.0"  # 강제로 0.0.0.0
+        
+        print(f"📡 SSE server at http://{host}:{port}", file=sys.stderr)
+        
+        # FastMCP 내부에서 생성하는 앱을 uvicorn으로 직접 실행 ⭐
+        # mcp.run() 대신 uvicorn 직접 사용
+        from mcp.server.sse import create_sse_server
+        
+        app = create_sse_server(mcp.server)
+        
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="info"
+        )
     else:
-        # stdio 모드 (MCP Inspector용)
-        print("📟 stdio mode - Connect with MCP Inspector", file=sys.stderr)
+        # stdio 모드
+        print("📟 stdio mode", file=sys.stderr)
         mcp.run()
