@@ -96,8 +96,8 @@ async def recommend_model(task: str):
 # Run
 # =========================
 if __name__ == "__main__":
+    print("🔥 MAIN BLOCK EXECUTING", file=sys.stderr)  # 추가
     mode = os.getenv("MCP_MODE", "stdio")
-    
     print(f"🚀 Starting MCP Server in {mode} mode", file=sys.stderr)
     
     if mode == "sse":
