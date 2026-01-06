@@ -89,9 +89,7 @@ if __name__ == "__main__":
 
     mode = os.getenv("MCP_MODE", "stdio")
 
-    if mode == "http":
-        # Koyeb / PlayMCP 용
-        mcp.run(transport="http")
+    if mode == "sse":
+        mcp.run(transport="sse")
     else:
-        # MCP Inspector 용
         mcp.run()
