@@ -1,6 +1,10 @@
 # MCP SDK (필수)
 mcp
 
+# ASGI 서버
+starlette>=0.37.0
+uvicorn[standard]>=0.27.0
+
 # 실시간 데이터 수집
 aiohttp>=3.9.1
 beautifulsoup4>=4.12.3
@@ -14,7 +18,3 @@ feedparser>=6.0.11
 
 # 유틸리티
 python-dotenv>=1.0.0
-
-# 웹 스크래핑 (고급, 선택사항)
-# playwright>=1.40.0  # JavaScript 렌더링 필요시
-# selenium>=4.15.0     # 동적 페이지 스크래핑시

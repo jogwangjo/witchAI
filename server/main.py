@@ -7,7 +7,6 @@ from bs4 import BeautifulSoup
 import json
 import os
 from dotenv import load_dotenv
-from mcp.server.fastmcp.server import SSEAsgiApp
 
 # .env 파일 로드
 load_dotenv()
@@ -368,21 +367,63 @@ async def recommend_ai_for_task(task: str, budget: str = "any", priority: str = 
     
     return f"'{task}' 작업에 대한 추천을 찾을 수 없습니다."
 
-app = SSEAsgiApp(mcp.server, mcp.server.name)
+def create_app():
+    """ASGI 앱 생성"""
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+    from starlette.responses import StreamingResponse, JSONResponse
+    import json
+    
+    async def sse_endpoint(request):
+        """SSE 엔드포인트"""
+        async def event_stream():
+            # SSE 연결 초기화
+            yield "event: endpoint\ndata: /message\n\n"
+            
+            # Keep-alive
+            while True:
+                yield ": ping\n\n"
+                await asyncio.sleep(30)
+        
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
+        )
+    
+    async def message_endpoint(request):
+        """MCP 메시지 처리"""
+        body = await request.json()
+        
+        # FastMCP의 handle_request 사용
+        response = await mcp.server.handle_request(body)
+        
+        return JSONResponse(response)
+    
+    async def health_check(request):
+        """Health check"""
+        return JSONResponse({
+            "service": "AI Recommender MCP",
+            "status": "running",
+            "version": "1.0.0"
+        })
+    
+    app = Starlette(
+        routes=[
+            Route("/", health_check),
+            Route("/sse", sse_endpoint, methods=["GET"]),
+            Route("/message", message_endpoint, methods=["POST"]),
+        ]
+    )
+    
+    return app
 
-# server/main.py 맨 아래
+# uvicorn이 import할 앱
+app = create_app()
+
 if __name__ == "__main__":
-    import sys
-    import os
-    
-    # PORT 환경변수 사용 (Koyeb, Railway 등)
-    port = int(os.getenv("PORT", 8000))
-    
-    print(f"🚀 Starting on port {port}")
-    
-    # 배포 환경에서는 uvicorn이 직접 app을 실행
-    # 로컬 테스트용
-    if "--local" in sys.argv:
-        mcp.run(transport='sse', port=port)
-    else:
-        print("Ready for uvicorn")
+    # 로컬 실행용
+    print("🚀 Use uvicorn to start: uvicorn server.main:app --host 0.0.0.0 --port 8000")
