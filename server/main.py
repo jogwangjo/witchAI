@@ -39,6 +39,7 @@ mcp = FastMCP("Stock-Pattern-Analyzer")
 # =========================
 @mcp.tool(
     name="analyze_stock_pattern",
+    # [중요] 여기에 적힌 description이 tools/list에 나갑니다.
     description="주식의 현재 차트 패턴을 분석하고, 과거 10년 치 데이터 중 가장 유사했던 시점을 찾아줍니다."
 )
 async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
@@ -76,7 +77,6 @@ class ASGIResponder(Response):
     """
     Starlette의 Request/Response 구조 안에서 
     MCP 라이브러리의 Raw ASGI 동작을 실행시켜주는 래퍼입니다.
-    이것이 있으면 TypeError가 나지 않습니다.
     """
     def __init__(self, app):
         self.app = app
@@ -85,7 +85,7 @@ class ASGIResponder(Response):
         await self.app(scope, receive, send)
 
 # =========================
-# 7. [핵심 2] Stateless Handler (Inspector/카카오 지원)
+# 7. [핵심 2] Stateless Handler (Description 누락 해결)
 # =========================
 async def handle_stateless_jsonrpc(request: Request):
     """
@@ -113,24 +113,32 @@ async def handle_stateless_jsonrpc(request: Request):
         if method == "notifications/initialized":
             return Response(status_code=200)
 
-        # 3. Tools List
+        # 3. Tools List [여기가 수정되었습니다!]
         if method == "tools/list":
             tools_data = []
-            # FastMCP 내부 툴 매니저에서 정보 추출
             for tool in mcp._tool_manager.list_tools():
+                # [수정] description이 None이면 빈 문자열("")로 변환하여 필드 누락 방지
+                # PlayMCP 심사 기준: description 필드 필수
+                desc = tool.description if tool.description else "Description not available"
+                
                 tools_data.append({
                     "name": tool.name,
-                    "description": tool.description,
+                    "description": desc,  # 강제 할당
                     "inputSchema": tool.inputSchema
                 })
+            
             return JSONResponse({
-                "jsonrpc": "2.0", "id": msg_id, "result": {"tools": tools_data}
+                "jsonrpc": "2.0", 
+                "id": msg_id, 
+                "result": {"tools": tools_data}
             })
 
         # 4. Call Tool
         if method == "tools/call":
             tool_name = params.get("name")
             tool_args = params.get("arguments", {})
+            
+            # FastMCP 도구 실행
             result = await mcp.call_tool(tool_name, tool_args)
             
             # 결과 변환
@@ -154,7 +162,6 @@ async def handle_stateless_jsonrpc(request: Request):
 
 sse_transport = SseServerTransport("/")
 
-# [수정됨] 다시 표준 Request 핸들러로 돌아왔습니다. (TypeError 해결)
 async def handle_root(request: Request):
     
     # 1. OPTIONS (CORS)
@@ -174,17 +181,21 @@ async def handle_root(request: Request):
                 s, r, send, mcp._mcp_server.create_initialization_options()
             ))
         
-        return JSONResponse({"status": "online", "mode": "Hybrid"})
+        return JSONResponse({
+            "status": "online", 
+            "mode": "Hybrid", 
+            "description_check": "Enabled"
+        })
 
     # 3. POST (Streamable HTTP)
     if request.method == "POST":
         session_id = request.query_params.get("session_id")
         
         if session_id:
-            # ID 있으면 -> 라이브러리 사용 (ASGIResponder로 감싸기)
+            # ID 있으면 -> 라이브러리 사용
             return ASGIResponder(sse_transport.handle_post_message)
         else:
-            # ID 없으면 -> 우리가 만든 Stateless Handler 사용! (여기가 핵심)
+            # ID 없으면 -> 우리가 만든 Stateless Handler 사용
             return await handle_stateless_jsonrpc(request)
 
     return Response(status_code=405)
