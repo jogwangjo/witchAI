@@ -1,7 +1,7 @@
 import sys
 import os
 from pathlib import Path
-import uvicorn # 실행 제어를 위해 필수
+import uvicorn 
 
 # 1. 경로 보정
 BASE_DIR = Path(__file__).resolve().parent
@@ -20,8 +20,11 @@ except ImportError:
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from tools.quant_engine import analyzer
 
-# 3. MCP 서버 초기화
-mcp = FastMCP("Stock-Pattern-Analyzer")
+# 3. [핵심 수정 부분 A] 포트를 먼저 정의하고, FastMCP 생성자 안에서 host/port를 설정합니다.
+port = int(os.getenv("PORT", 8000))
+
+# 여기서 host='0.0.0.0'과 port=port를 설정해야 합니다.
+mcp = FastMCP("Stock-Pattern-Analyzer", host="0.0.0.0", port=port)
 
 # 4. 툴 등록
 @mcp.tool()
@@ -56,11 +59,7 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     return response
 
 if __name__ == "__main__":
-    # 포트 번호 가져오기
-    port = int(os.getenv("PORT", 8000))
-    
     print(f"🚀 Starting MCP Server on 0.0.0.0:{port}", file=sys.stderr)
 
-    # [핵심 수정] 복잡한 패치 코드 다 버리고, 직접 인자로 꽂아넣으세요.
-    # mcp.run은 내부적으로 host와 port 인자를 받아줍니다.
-    mcp.run(transport='sse', host='0.0.0.0', port=port)
+    # 5. [핵심 수정 부분 B] run() 안에는 transport만 남깁니다. (이미 위에서 설정했으므로)
+    mcp.run(transport='sse')
