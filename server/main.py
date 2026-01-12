@@ -70,13 +70,22 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     response += "\n⚠️ 이 분석은 과거의 통계적 유사성만을 보여주며, 미래의 수익을 보장하지 않습니다."
     return response
 
+app = mcp._get_asgi_app()
+
+# 루트 엔드포인트 추가
+from starlette.responses import JSONResponse
+
+@app.route("/")
+async def root(request):
+    return JSONResponse({
+        "service": "Stock Pattern Analyzer MCP",
+        "status": "running",
+        "endpoints": {
+            "sse": "/sse",
+            "messages": "/messages"
+        }
+    })
+
 if __name__ == "__main__":
     print(f"🚀 Starting MCP Server on 0.0.0.0:{port}", file=sys.stderr)
-    print(f"✅ Streamable HTTP Endpoint Active: /messages (POST)", file=sys.stderr)
-    print(f"✅ SSE Endpoint Active: /sse (GET)", file=sys.stderr)
-
-    # 5. [설정 유지] transport='sse'
-    # 이 옵션은 FastMCP 내부에서 Starlette 서버를 띄워
-    # /sse (GET) 와 /messages (POST) 엔드포인트를 모두 활성화합니다.
-    # 이는 MCP 스펙의 "Streamable HTTP" 요구사항을 충족합니다.
     mcp.run(transport='sse')
