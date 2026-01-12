@@ -1,6 +1,18 @@
+import sys
+import os
+
+# [중요] 경로 문제 해결: 현재 파일의 위치를 시스템 경로에 추가
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from mcp.server.fastmcp import FastMCP
-from tools.quant_engine import analyzer
 import asyncio
+
+# 모듈 가져오기 (경로 유동성 확보)
+try:
+    from tools.quant_engine import analyzer
+except ImportError:
+    # 실행 위치에 따라 server.tools로 인식될 수도 있음
+    from server.tools.quant_engine import analyzer
 
 # 서버 초기화
 mcp = FastMCP("Stock-Pattern-Analyzer")
@@ -49,8 +61,9 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     
     return response
 
-
+# Koyeb 등에서 ASGI 앱으로 인식하기 위한 변수 노출
 app = mcp._get_server_app() 
 
 if __name__ == "__main__":
-    mcp.run(transport='streamable-http')
+    # 반드시 'sse'로 설정해야 HTTP 엔드포인트가 생성됩니다.
+    mcp.run(transport='sse')
