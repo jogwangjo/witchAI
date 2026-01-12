@@ -69,61 +69,71 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     return response
 
 # =========================
-# 6. Starlette 앱 구성 (RuntimeError 완벽 해결)
+# 6. Starlette 앱 구성 (Custom Response 방식 - 에러 완전 차단)
 # =========================
 
 sse_transport = SseServerTransport("/")
 
-# [핵심] scope, receive, send를 직접 받는 Raw ASGI 핸들러 함수
-async def handle_root(scope, receive, send):
+# [핵심 1] SSE 연결을 처리하는 특수 응답 클래스
+class MCP_SSE_Response(Response):
+    def __init__(self, transport, mcp_server):
+        self.transport = transport
+        self.mcp_server = mcp_server
+        # 부모 클래스 초기화 (media_type은 SSE 필수)
+        super().__init__(media_type="text/event-stream")
+
+    async def __call__(self, scope, receive, send):
+        # Starlette이 응답을 보내라고 할 때, MCP에게 제어권을 넘깁니다.
+        async with self.transport.connect_sse(scope, receive, send) as streams:
+            await self.mcp_server.run(
+                streams[0], 
+                streams[1], 
+                self.mcp_server.create_initialization_options()
+            )
+
+# [핵심 2] POST 요청(Streamable HTTP)을 처리하는 특수 응답 클래스
+class MCP_POST_Response(Response):
+    def __init__(self, transport):
+        self.transport = transport
+        super().__init__()
+
+    async def __call__(self, scope, receive, send):
+        # 여기서 MCP가 직접 응답을 쓰고 종료하므로, Starlette의 중복 응답 에러가 발생하지 않습니다.
+        await self.transport.handle_post_message(scope, receive, send)
+
+# [핵심 3] 핸들러 함수 복구 (Starlette 표준 방식인 request 인자 사용)
+async def handle_root(request: Request):
     """
-    모든 요청을 처리하는 통합 핸들러.
-    Starlette의 자동 Response 처리를 우회하여 중복 응답 에러를 방지합니다.
+    이제 표준 request 핸들러로 동작하되, 반환값으로 특수 Response 객체를 줍니다.
     """
-    request = Request(scope, receive)
-    
-    # 1. OPTIONS (CORS Preflight)
+    # 1. OPTIONS (CORS)
     if request.method == "OPTIONS":
-        response = Response(status_code=200, headers={
+        return Response(status_code=200, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "*",
         })
-        await response(scope, receive, send)
-        return
 
-    # 2. GET (SSE 연결 및 Health Check)
+    # 2. GET (SSE & Health Check)
     if request.method == "GET":
         accept = request.headers.get("accept", "")
-        
         if "text/event-stream" in accept:
-            # SSE 연결: 통신 제어권을 mcp 라이브러리에 완전히 넘김
-            async with sse_transport.connect_sse(scope, receive, send) as streams:
-                await mcp._mcp_server.run(
-                    streams[0], 
-                    streams[1], 
-                    mcp._mcp_server.create_initialization_options()
-                )
-            return
-
-        # 일반 접속 (Health Check)
-        response = JSONResponse({
+            # 특수 SSE 응답 객체 반환
+            return MCP_SSE_Response(sse_transport, mcp._mcp_server)
+        
+        # 일반 Health Check
+        return JSONResponse({
             "status": "online",
             "service": "Stock-Pattern-Analyzer",
             "endpoints": ["/ (GET: SSE)", "/ (POST: JSON-RPC)"]
         })
-        await response(scope, receive, send)
-        return
 
     # 3. POST (Streamable HTTP)
     if request.method == "POST":
-        # [중요] handle_post_message가 응답을 보내면, 함수를 바로 종료(return)해야 함
-        await sse_transport.handle_post_message(scope, receive, send)
-        return
+        # 특수 POST 응답 객체 반환
+        return MCP_POST_Response(sse_transport)
 
-    # 4. 그 외 메소드 (405)
-    response = Response(status_code=405)
-    await response(scope, receive, send)
+    return Response(status_code=405)
 
 # CORS 미들웨어 설정
 middleware = [
@@ -138,7 +148,7 @@ middleware = [
 app = Starlette(
     debug=True,
     routes=[
-        # endpoint에 함수 자체를 넘기면 Raw ASGI 앱으로 작동
+        # 표준 Route 사용 (이제 handle_root가 request를 받으므로 문제 없음)
         Route("/", endpoint=handle_root, methods=["GET", "POST", "OPTIONS"]),
     ],
     middleware=middleware
