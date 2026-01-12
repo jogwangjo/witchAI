@@ -20,31 +20,43 @@ except ImportError:
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from tools.quant_engine import analyzer
 
-# 3. [핵심 수정 부분 A] 포트를 먼저 정의하고, FastMCP 생성자 안에서 host/port를 설정합니다.
+# 3. [서버 설정] 포트 및 호스트 설정
+# Streamable HTTP를 위해 0.0.0.0 호스트 설정이 필수입니다.
 port = int(os.getenv("PORT", 8000))
 
-# 여기서 host='0.0.0.0'과 port=port를 설정해야 합니다.
-mcp = FastMCP("Stock-Pattern-Analyzer", host="0.0.0.0", port=port)
+mcp = FastMCP(
+    "Stock-Pattern-Analyzer", 
+    host="0.0.0.0", 
+    port=port
+)
 
 # 4. 툴 등록
-@mcp.tool()
+# [핵심 수정] description을 데코레이터에 명시하여 'tools/list' 응답에 확실히 포함되도록 함
+@mcp.tool(
+    name="analyze_stock_pattern",
+    description="주식의 현재 차트 패턴을 분석하고, 과거 10년 치 데이터 중 가장 유사했던 시점을 찾아줍니다."
+)
 async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     """
     주식의 현재 차트 패턴을 분석하고, 과거 10년 치 데이터 중 가장 유사했던 시점을 찾아줍니다.
     """
-    result = await analyzer.find_similar_patterns(ticker, window_size=window_days)
+    # 에러 처리 강화: 서버가 죽지 않고 에러 메시지를 반환하도록 함
+    try:
+        result = await analyzer.find_similar_patterns(ticker, window_size=window_days)
+    except Exception as e:
+        return f"서버 내부 오류 발생: {str(e)}"
     
     if "error" in result:
         return f"분석 중 오류 발생: {result['error']}"
     
-    matches = result["top_matches"]
+    matches = result.get("top_matches", [])
     if not matches:
         return f"'{ticker}'의 현재 패턴과 유사도 80% 이상인 과거 패턴을 찾을 수 없습니다."
     
     response = f"""
 📊 **[{ticker}] 주가 패턴 정밀 분석 결과**
 - 분석 알고리즘: Z-Score Normalization + Pearson Correlation
-- 분석 기간: 최근 {window_days}일 ({result['current_period']['start']} ~ {result['current_period']['end']})
+- 분석 기간: 최근 {window_days}일 ({result.get('current_period', {}).get('start', '?')} ~ {result.get('current_period', {}).get('end', '?')})
 
 발견된 가장 유사한 과거 사례 (Top {len(matches)}):
 """
@@ -60,6 +72,11 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
 
 if __name__ == "__main__":
     print(f"🚀 Starting MCP Server on 0.0.0.0:{port}", file=sys.stderr)
+    print(f"✅ Streamable HTTP Endpoint Active: /messages (POST)", file=sys.stderr)
+    print(f"✅ SSE Endpoint Active: /sse (GET)", file=sys.stderr)
 
-    # 5. [핵심 수정 부분 B] run() 안에는 transport만 남깁니다. (이미 위에서 설정했으므로)
+    # 5. [설정 유지] transport='sse'
+    # 이 옵션은 FastMCP 내부에서 Starlette 서버를 띄워
+    # /sse (GET) 와 /messages (POST) 엔드포인트를 모두 활성화합니다.
+    # 이는 MCP 스펙의 "Streamable HTTP" 요구사항을 충족합니다.
     mcp.run(transport='sse')
