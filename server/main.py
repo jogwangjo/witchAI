@@ -1,18 +1,14 @@
 import sys
 import os
-
-# [중요] 경로 문제 해결: 현재 파일의 위치를 시스템 경로에 추가
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from mcp.server.fastmcp import FastMCP
-import asyncio
 
-# 모듈 가져오기 (경로 유동성 확보)
-try:
-    from tools.quant_engine import analyzer
-except ImportError:
-    # 실행 위치에 따라 server.tools로 인식될 수도 있음
-    from server.tools.quant_engine import analyzer
+# [중요] 현재 파일(main.py)이 있는 경로(server)를 시스템 경로에 추가
+# 이렇게 하면 'tools' 폴더를 바로 찾을 수 있습니다.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
+
+# 이제 tools를 바로 import 할 수 있습니다.
+from tools.quant_engine import analyzer
 
 # 서버 초기화
 mcp = FastMCP("Stock-Pattern-Analyzer")
