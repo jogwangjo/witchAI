@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from typing import Dict, Any, Optional
-
+from starlette.responses import JSONResponse, Response 
 
 
 # 1. 경로 보정
@@ -163,39 +163,25 @@ sse_transport = SseServerTransport("/")
 
 
 async def handle_root(request: Request):
-
-    """단일 엔드포인트(/)에서 모든 요청 처리"""
-
     if request.method == "GET":
-
         accept = request.headers.get("accept", "")
-
         if "text/event-stream" in accept:
-
+            # SSE
             async with sse_transport.connect_sse(request.scope, request.receive, request._send) as streams:
-
                 await mcp._mcp_server.run(streams[0], streams[1], mcp._mcp_server.create_initialization_options())
-
-            return
-
-       
-
+            return Response()  # ⭐ 추가
+        
+        # Health check
         return JSONResponse({
-
             "status": "online",
-
             "service": "Stock-Pattern-Analyzer",
-
             "endpoints": ["/ (GET: SSE)", "/ (POST: JSON-RPC)"]
-
         })
 
-
-
     elif request.method == "POST":
-
+        # Streamable HTTP (JSON-RPC)
         await sse_transport.handle_post_message(request.scope, request.receive, request._send)
-
+        return Response()  # ⭐ 추가
 
 
 # [핵심 수정] CORS 미들웨어 설정
