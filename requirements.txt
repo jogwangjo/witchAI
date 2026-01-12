@@ -1,20 +1,6 @@
-# MCP SDK (필수)
-mcp
-
-# ASGI 서버
-starlette>=0.37.0
-uvicorn[standard]>=0.27.0
-
-# 실시간 데이터 수집
-aiohttp>=3.9.1
-beautifulsoup4>=4.12.3
-lxml>=5.1.0
-
-# HTTP 클라이언트
-httpx>=0.26.0
-
-# 데이터 파싱
-feedparser>=6.0.11
-
-# 유틸리티
-python-dotenv>=1.0.0
+fastmcp  # mcp → fastmcp
+yfinance
+numpy
+pandas
+scipy
+uvicorn
