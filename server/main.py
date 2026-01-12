@@ -11,7 +11,7 @@ sys.path.insert(0, str(BASE_DIR))
 import uvicorn
 from starlette.applications import Starlette
 from starlette.routing import Route
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse
 from starlette.requests import Request
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
@@ -70,45 +70,54 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     return response
 
 # =========================
-# 6. Starlette 앱 구성 (인자 개수 에러 수정됨)
+# 6. Starlette 앱 구성 (Raw ASGI 모드로 수정)
 # =========================
 
 sse_transport = SseServerTransport("/")
 
-# ASGI 앱을 Starlette Response처럼 감싸주는 클래스
-class ASGIResponder(Response):
-    def __init__(self, app):
-        self.app = app
-    
-    async def __call__(self, scope, receive, send):
-        await self.app(scope, receive, send)
-
-async def handle_root(request: Request):
-    """단일 엔드포인트(/)에서 모든 요청 처리"""
+# [핵심 수정] Request/Response 객체 대신 Raw ASGI scope를 직접 다룹니다.
+# 이렇게 하면 Starlette의 Response 규칙을 우회하여 에러를 방지합니다.
+async def handle_root(scope, receive, send):
+    """
+    Raw ASGI Endpoint: 
+    Starlette의 Request/Response 래퍼를 거치지 않고 직접 통신을 제어합니다.
+    """
+    request = Request(scope, receive)
     
     if request.method == "GET":
         accept = request.headers.get("accept", "")
-        # SSE 연결 요청 (Inspector/Claude)
-        if "text/event-stream" in accept:
-            # [수정] initialization_options를 connect_sse의 인자로 전달
-            return ASGIResponder(lambda s, r, send: sse_transport.connect_sse(
-                s, r, send, 
-                mcp._mcp_server.create_initialization_options()
-            ))
         
-        # 일반 GET 요청 (Health Check)
-        return JSONResponse({
+        # 1. SSE 연결 (Inspector/Claude)
+        if "text/event-stream" in accept:
+            # [수정된 부분] connect_sse에는 options를 넣지 않고, 내부 run()에 넣습니다.
+            async with sse_transport.connect_sse(scope, receive, send) as streams:
+                await mcp._mcp_server.run(
+                    streams[0], 
+                    streams[1], 
+                    mcp._mcp_server.create_initialization_options()
+                )
+            return
+
+        # 2. Health Check (Koyeb/Browser)
+        # Raw ASGI에서는 JSON 응답도 직접 send로 보내야 하므로 JSONResponse를 호출하여 실행합니다.
+        response = JSONResponse({
             "status": "online",
             "service": "Stock-Pattern-Analyzer",
             "endpoints": ["/ (GET: SSE)", "/ (POST: JSON-RPC)"]
         })
+        await response(scope, receive, send)
+        return
 
     elif request.method == "POST":
-        # POST 요청 처리
-        return ASGIResponder(sse_transport.handle_post_message)
-    
+        # 3. Streamable HTTP 메시지 처리
+        # handle_post_message가 알아서 응답을 보내고 종료하므로 return이 없어도 안전합니다.
+        await sse_transport.handle_post_message(scope, receive, send)
+        return
+
     elif request.method == "OPTIONS":
-        return Response(status_code=200)
+        response = JSONResponse({}, status_code=200)
+        await response(scope, receive, send)
+        return
 
 # CORS 미들웨어 설정
 middleware = [
@@ -123,7 +132,8 @@ middleware = [
 app = Starlette(
     debug=True,
     routes=[
-        Route("/", handle_root, methods=["GET", "POST", "OPTIONS"]),
+        # endpoint에 함수 자체를 넘기면 Raw ASGI 앱으로 인식합니다.
+        Route("/", endpoint=handle_root, methods=["GET", "POST", "OPTIONS"]),
     ],
     middleware=middleware
 )
