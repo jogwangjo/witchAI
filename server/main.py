@@ -105,8 +105,6 @@ async def handle_root(request: Request):
                     streams[0], streams[1], 
                     mcp._mcp_server.create_initialization_options()
                 )
-            return Response()
-        
         # Health check
         return JSONResponse({
             "status": "online",
@@ -123,7 +121,6 @@ async def handle_root(request: Request):
         await sse_transport.handle_post_message(
             request.scope, request.receive, request._send
         )
-        return Response()
 
     return Response(status_code=405)
 
