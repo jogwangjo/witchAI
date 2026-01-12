@@ -1,36 +1,34 @@
 import sys
 import os
 from pathlib import Path
+import uvicorn # 실행 제어를 위해 필수
 
-# 1. 경로 보정 (사용자님 예전 코드 방식 + tools 인식용)
+# 1. 경로 보정
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
 # 2. 필요한 모듈 임포트
 from mcp.server.fastmcp import FastMCP
 
-# tools 폴더에서 주식 분석기 가져오기
-# (혹시 경로 에러나면 server.tools... 로 시도하도록 예외처리)
+# tools 가져오기
 try:
     from tools.quant_engine import analyzer
 except ImportError:
     try:
         from server.tools.quant_engine import analyzer
     except ImportError:
-        # 최후의 수단: 현재 경로 추가 후 재시도
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from tools.quant_engine import analyzer
 
 # 3. MCP 서버 초기화
 mcp = FastMCP("Stock-Pattern-Analyzer")
 
-# 4. 툴 등록 (주식 분석)
+# 4. 툴 등록
 @mcp.tool()
 async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     """
     주식의 현재 차트 패턴을 분석하고, 과거 10년 치 데이터 중 가장 유사했던 시점을 찾아줍니다.
     """
-    # 분석 엔진 실행
     result = await analyzer.find_similar_patterns(ticker, window_size=window_days)
     
     if "error" in result:
@@ -57,14 +55,25 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     response += "\n⚠️ 이 분석은 과거의 통계적 유사성만을 보여주며, 미래의 수익을 보장하지 않습니다."
     return response
 
-# 5. 서버 실행 (사용자님 예전 코드 방식 적용)
+# 5. 서버 실행 (이 부분이 핵심입니다!)
 if __name__ == "__main__":
-    # Koyeb 환경변수에서 PORT 가져오기 (없으면 8000)
+    # Koyeb이 제공하는 포트 번호 가져오기 (없으면 8000)
     port = int(os.getenv("PORT", 8000))
     host = "0.0.0.0"
 
     print(f"🚀 Starting MCP Server on {host}:{port}", file=sys.stderr)
     
-    # FastMCP의 run 메서드에 직접 host와 port를 전달
-    # (예전 코드처럼 복잡하게 uvicorn을 패치하지 않아도, 최신 FastMCP는 인자를 받습니다)
+    # [핵심] uvicorn.run을 패치하여 host와 port를 강제로 설정
+    # FastMCP.run()이 내부적으로 uvicorn.run을 부를 때 이 설정을 쓰게 만듭니다.
+    original_run = uvicorn.run
+
+    def patched_run(app, **kwargs):
+        kwargs['host'] = host
+        kwargs['port'] = port
+        print(f"🔧 Applied patch: host={host}, port={port}", file=sys.stderr)
+        return original_run(app, **kwargs)
+
+    uvicorn.run = patched_run
+
+    # 이제 실행 (인자 없이 실행해도 위 패치가 적용됨)
     mcp.run(transport='sse')
