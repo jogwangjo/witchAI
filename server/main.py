@@ -11,7 +11,7 @@ sys.path.insert(0, str(BASE_DIR))
 import uvicorn
 from starlette.applications import Starlette
 from starlette.routing import Route
-from starlette.responses import JSONResponse, Response  # Response 추가
+from starlette.responses import JSONResponse, Response
 from starlette.requests import Request
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
@@ -70,12 +70,12 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     return response
 
 # =========================
-# 6. Starlette 앱 구성 (버그 수정됨)
+# 6. Starlette 앱 구성 (인자 개수 에러 수정됨)
 # =========================
 
 sse_transport = SseServerTransport("/")
 
-# [핵심 수정 1] MCP의 내부 로직을 Starlette Response처럼 포장해주는 클래스
+# ASGI 앱을 Starlette Response처럼 감싸주는 클래스
 class ASGIResponder(Response):
     def __init__(self, app):
         self.app = app
@@ -90,9 +90,10 @@ async def handle_root(request: Request):
         accept = request.headers.get("accept", "")
         # SSE 연결 요청 (Inspector/Claude)
         if "text/event-stream" in accept:
-            # 람다 함수로 감싸서 ASGIResponder에 전달
+            # [수정] initialization_options를 connect_sse의 인자로 전달
             return ASGIResponder(lambda s, r, send: sse_transport.connect_sse(
-                s, r, send, mcp._mcp_server.create_initialization_options()
+                s, r, send, 
+                mcp._mcp_server.create_initialization_options()
             ))
         
         # 일반 GET 요청 (Health Check)
@@ -103,8 +104,7 @@ async def handle_root(request: Request):
         })
 
     elif request.method == "POST":
-        # [핵심 수정 2] 단순히 await 하는 게 아니라, ASGIResponder를 '반환(return)' 해야 함
-        # 이렇게 하면 Starlette가 이 객체를 받아서 안전하게 실행합니다.
+        # POST 요청 처리
         return ASGIResponder(sse_transport.handle_post_message)
     
     elif request.method == "OPTIONS":
@@ -135,5 +135,4 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     print(f"🚀 Stock Pattern Analyzer running on 0.0.0.0:{port}", file=sys.stderr)
     
-    # workers=1, reload=False 유지
     uvicorn.run(app, host="0.0.0.0", port=port, workers=1, reload=False)
