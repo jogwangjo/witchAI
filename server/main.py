@@ -35,11 +35,12 @@ except ImportError:
 mcp = FastMCP("Stock-Pattern-Analyzer")
 
 # =========================
-# 5. 주가 분석 툴 등록
+# 5. 툴 등록 (PlayMCP 심사용 툴 포함)
 # =========================
+
+# [Tool 1] 주가 분석 (메인)
 @mcp.tool(
     name="analyze_stock_pattern",
-    # [중요] 여기에 적힌 description이 tools/list에 나갑니다.
     description="주식의 현재 차트 패턴을 분석하고, 과거 10년 치 데이터 중 가장 유사했던 시점을 찾아줍니다."
 )
 async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
@@ -70,14 +71,18 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
 """
     return response
 
+# [Tool 2] 에코 메시지 (심사 통과 및 테스트용)
+@mcp.tool(
+    name="echo_message",
+    description="입력한 메시지를 그대로 반환합니다. 연결 상태를 확인하는 테스트용 도구입니다."
+)
+async def echo_message(message: str) -> str:
+    return f"Echo check: {message}"
+
 # =========================
-# 6. [핵심 1] MCP 라이브러리 연결 다리 (Bridge)
+# 6. Bridge Class
 # =========================
 class ASGIResponder(Response):
-    """
-    Starlette의 Request/Response 구조 안에서 
-    MCP 라이브러리의 Raw ASGI 동작을 실행시켜주는 래퍼입니다.
-    """
     def __init__(self, app):
         self.app = app
     
@@ -85,7 +90,7 @@ class ASGIResponder(Response):
         await self.app(scope, receive, send)
 
 # =========================
-# 7. [핵심 2] Stateless Handler (Description 누락 해결)
+# 7. Stateless Handler (빨간 에러 해결본)
 # =========================
 async def handle_stateless_jsonrpc(request: Request):
     """
@@ -113,18 +118,25 @@ async def handle_stateless_jsonrpc(request: Request):
         if method == "notifications/initialized":
             return Response(status_code=200)
 
-        # 3. Tools List [여기가 수정되었습니다!]
+        # 3. Tools List [에러 수정 완료!]
         if method == "tools/list":
             tools_data = []
             for tool in mcp._tool_manager.list_tools():
-                # [수정] description이 None이면 빈 문자열("")로 변환하여 필드 누락 방지
-                # PlayMCP 심사 기준: description 필드 필수
-                desc = tool.description if tool.description else "Description not available"
                 
+                # [수정 1] Description 안전장치
+                safe_desc = tool.description if tool.description else "No description available."
+                
+                # [수정 2] InputSchema 안전장치 (이게 없어서 에러가 났던 것입니다!)
+                # 스키마가 없으면 빈 객체라도 줘야 Inspector가 인식합니다.
+                safe_schema = tool.inputSchema if tool.inputSchema else {
+                    "type": "object", 
+                    "properties": {}
+                }
+
                 tools_data.append({
                     "name": tool.name,
-                    "description": desc,  # 강제 할당
-                    "inputSchema": tool.inputSchema
+                    "description": safe_desc,
+                    "inputSchema": safe_schema  # 안전장치 적용된 스키마 사용
                 })
             
             return JSONResponse({
@@ -141,23 +153,28 @@ async def handle_stateless_jsonrpc(request: Request):
             # FastMCP 도구 실행
             result = await mcp.call_tool(tool_name, tool_args)
             
-            # 결과 변환
             content = []
             for item in result:
                 if item.type == "text":
                     content.append({"type": "text", "text": item.text})
+                elif item.type == "image":
+                    content.append({"type": "image", "data": item.data, "mimeType": item.mimeType})
             
             return JSONResponse({
                 "jsonrpc": "2.0", "id": msg_id, "result": {"content": content, "isError": False}
             })
-            
+
+        # 5. Ping
+        if method == "ping":
+            return JSONResponse({"jsonrpc": "2.0", "id": msg_id, "result": {}})
+
         return JSONResponse({"jsonrpc": "2.0", "id": msg_id, "result": {}})
 
     except Exception as e:
         return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": str(e)}})
 
 # =========================
-# 8. 통합 라우터 (handle_root)
+# 8. 통합 라우터
 # =========================
 
 sse_transport = SseServerTransport("/")
@@ -176,7 +193,6 @@ async def handle_root(request: Request):
     if request.method == "GET":
         accept = request.headers.get("accept", "")
         if "text/event-stream" in accept:
-            # MCP 라이브러리(SSE)를 ASGIResponder로 감싸서 실행
             return ASGIResponder(lambda s, r, send: sse_transport.connect_sse(
                 s, r, send, mcp._mcp_server.create_initialization_options()
             ))
@@ -184,7 +200,7 @@ async def handle_root(request: Request):
         return JSONResponse({
             "status": "online", 
             "mode": "Hybrid", 
-            "description_check": "Enabled"
+            "fixed": "InputSchema Safety"
         })
 
     # 3. POST (Streamable HTTP)
@@ -192,10 +208,8 @@ async def handle_root(request: Request):
         session_id = request.query_params.get("session_id")
         
         if session_id:
-            # ID 있으면 -> 라이브러리 사용
             return ASGIResponder(sse_transport.handle_post_message)
         else:
-            # ID 없으면 -> 우리가 만든 Stateless Handler 사용
             return await handle_stateless_jsonrpc(request)
 
     return Response(status_code=405)
