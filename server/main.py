@@ -55,25 +55,12 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     response += "\n⚠️ 이 분석은 과거의 통계적 유사성만을 보여주며, 미래의 수익을 보장하지 않습니다."
     return response
 
-# 5. 서버 실행 (이 부분이 핵심입니다!)
 if __name__ == "__main__":
-    # Koyeb이 제공하는 포트 번호 가져오기 (없으면 8000)
+    # 포트 번호 가져오기
     port = int(os.getenv("PORT", 8000))
-    host = "0.0.0.0"
-
-    print(f"🚀 Starting MCP Server on {host}:{port}", file=sys.stderr)
     
-    # [핵심] uvicorn.run을 패치하여 host와 port를 강제로 설정
-    # FastMCP.run()이 내부적으로 uvicorn.run을 부를 때 이 설정을 쓰게 만듭니다.
-    original_run = uvicorn.run
+    print(f"🚀 Starting MCP Server on 0.0.0.0:{port}", file=sys.stderr)
 
-    def patched_run(app, **kwargs):
-        kwargs['host'] = host
-        kwargs['port'] = port
-        print(f"🔧 Applied patch: host={host}, port={port}", file=sys.stderr)
-        return original_run(app, **kwargs)
-
-    uvicorn.run = patched_run
-
-    # 이제 실행 (인자 없이 실행해도 위 패치가 적용됨)
-    mcp.run(transport='sse')
+    # [핵심 수정] 복잡한 패치 코드 다 버리고, 직접 인자로 꽂아넣으세요.
+    # mcp.run은 내부적으로 host와 port 인자를 받아줍니다.
+    mcp.run(transport='sse', host='0.0.0.0', port=port)
