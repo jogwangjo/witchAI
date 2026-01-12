@@ -107,7 +107,11 @@ async def handle_stateless_jsonrpc(request: Request):
                 "id": msg_id,
                 "result": {
                     "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {"listChanged": False}},
+                    "capabilities": {
+                        "tools": {"listChanged": False},
+                        "prompts": {},
+                        "resources": {}
+                    },
                     "serverInfo": {"name": "Stock-Pattern-Analyzer", "version": "1.0.0"}
                 }
             })
@@ -116,8 +120,9 @@ async def handle_stateless_jsonrpc(request: Request):
         if method == "notifications/initialized":
             return Response(status_code=200)
 
-        # 3. Tools List
+        # 3. Tools List - 이 부분이 문제!
         if method == "tools/list":
+            print(f"DEBUG: tools/list called, msg_id={msg_id}, type={type(msg_id)}", file=sys.stderr)
             tools_data = []
             for tool in mcp._tool_manager.list_tools():
                 safe_desc = tool.description if tool.description else "No description available."
@@ -129,9 +134,20 @@ async def handle_stateless_jsonrpc(request: Request):
                     "inputSchema": safe_schema
                 })
             
-            return JSONResponse({
-                "jsonrpc": "2.0", "id": msg_id, "result": {"tools": tools_data}
-            })
+            # JSON-RPC 응답 형식 수정
+            response = {
+                "jsonrpc": "2.0", 
+                "id": msg_id,  # msg_id가 None이어도 문제될 수 있음
+                "result": {
+                    "tools": tools_data
+                }
+            }
+            
+            # id가 None인 경우 null로 설정
+            if msg_id is None:
+                response["id"] = None
+            
+            return JSONResponse(response)
 
         # 4. Call Tool
         if method == "tools/call":
@@ -147,7 +163,11 @@ async def handle_stateless_jsonrpc(request: Request):
                     content.append({"type": "image", "data": item.data, "mimeType": item.mimeType})
             
             return JSONResponse({
-                "jsonrpc": "2.0", "id": msg_id, "result": {"content": content, "isError": False}
+                "jsonrpc": "2.0", 
+                "id": msg_id, 
+                "result": {
+                    "content": content
+                }
             })
 
         # 5. Ping
@@ -157,7 +177,11 @@ async def handle_stateless_jsonrpc(request: Request):
         return JSONResponse({"jsonrpc": "2.0", "id": msg_id, "result": {}})
 
     except Exception as e:
-        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": str(e)}})
+        return JSONResponse({
+            "jsonrpc": "2.0", 
+            "id": None, 
+            "error": {"code": -32000, "message": str(e)}
+        })
 
 # =========================
 # 8. 통합 라우터 (여기가 핵심 수정됨!)
