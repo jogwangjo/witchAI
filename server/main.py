@@ -1,7 +1,6 @@
 import sys
 import os
 import json
-import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -19,7 +18,6 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
-from mcp.types import JSONRPCMessage, JSONRPCResponse
 
 # =========================
 # 3. 기존 주가 분석 툴 임포트
@@ -72,13 +70,26 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     return response
 
 # =========================
-# 6. [핵심] Stateless Handler (라이브러리 한계 돌파)
+# 6. [핵심 1] MCP 라이브러리 연결 다리 (Bridge)
 # =========================
+class ASGIResponder(Response):
+    """
+    Starlette의 Request/Response 구조 안에서 
+    MCP 라이브러리의 Raw ASGI 동작을 실행시켜주는 래퍼입니다.
+    이것이 있으면 TypeError가 나지 않습니다.
+    """
+    def __init__(self, app):
+        self.app = app
+    
+    async def __call__(self, scope, receive, send):
+        await self.app(scope, receive, send)
 
+# =========================
+# 7. [핵심 2] Stateless Handler (Inspector/카카오 지원)
+# =========================
 async def handle_stateless_jsonrpc(request: Request):
     """
-    Session ID가 없는 요청을 직접 처리하는 핸들러입니다.
-    라이브러리의 SseServerTransport를 우회합니다.
+    Session ID가 없는 Streamable HTTP 요청을 직접 처리합니다.
     """
     try:
         body = await request.json()
@@ -86,140 +97,97 @@ async def handle_stateless_jsonrpc(request: Request):
         msg_id = body.get("id")
         params = body.get("params", {})
 
-        # 1. Initialize 요청 처리
+        # 1. Initialize
         if method == "initialize":
             return JSONResponse({
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "result": {
                     "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {"listChanged": False},
-                        "resources": {"listChanged": False, "subscribe": False},
-                        "prompts": {"listChanged": False},
-                        "logging": {}
-                    },
+                    "capabilities": {"tools": {"listChanged": False}},
                     "serverInfo": {"name": "Stock-Pattern-Analyzer", "version": "1.0.0"}
                 }
             })
 
-        # 2. Initialized 알림 (응답 없음)
+        # 2. Initialized
         if method == "notifications/initialized":
             return Response(status_code=200)
 
-        # 3. Tools List 요청 처리
+        # 3. Tools List
         if method == "tools/list":
-            # FastMCP 내부에서 툴 목록을 가져와서 직접 포맷팅
             tools_data = []
+            # FastMCP 내부 툴 매니저에서 정보 추출
             for tool in mcp._tool_manager.list_tools():
                 tools_data.append({
                     "name": tool.name,
                     "description": tool.description,
                     "inputSchema": tool.inputSchema
                 })
-            
             return JSONResponse({
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "tools": tools_data
-                }
+                "jsonrpc": "2.0", "id": msg_id, "result": {"tools": tools_data}
             })
 
-        # 4. Call Tool 요청 처리
+        # 4. Call Tool
         if method == "tools/call":
             tool_name = params.get("name")
             tool_args = params.get("arguments", {})
-            
-            # FastMCP를 통해 도구 실행
             result = await mcp.call_tool(tool_name, tool_args)
             
-            # 결과 포맷팅
+            # 결과 변환
             content = []
             for item in result:
                 if item.type == "text":
                     content.append({"type": "text", "text": item.text})
-                elif item.type == "image":
-                    content.append({"type": "image", "data": item.data, "mimeType": item.mimeType})
-
+            
             return JSONResponse({
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "content": content,
-                    "isError": False
-                }
+                "jsonrpc": "2.0", "id": msg_id, "result": {"content": content, "isError": False}
             })
             
-        # 5. Ping
-        if method == "ping":
-            return JSONResponse({"jsonrpc": "2.0", "id": msg_id, "result": {}})
-
-        # 그 외 모르는 메소드
-        return JSONResponse({
-            "jsonrpc": "2.0", 
-            "id": msg_id, 
-            "error": {"code": -32601, "message": "Method not found"}
-        })
+        return JSONResponse({"jsonrpc": "2.0", "id": msg_id, "result": {}})
 
     except Exception as e:
-        return JSONResponse({
-            "jsonrpc": "2.0",
-            "id": None,
-            "error": {"code": -32000, "message": str(e)}
-        })
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": str(e)}})
 
 # =========================
-# 7. Starlette 라우팅
+# 8. 통합 라우터 (handle_root)
 # =========================
 
 sse_transport = SseServerTransport("/")
 
-async def handle_root(scope, receive, send):
-    """
-    통합 라우터:
-    - Session ID 있음 -> 라이브러리(SSE) 사용
-    - Session ID 없음 -> 직접 만든 Stateless 핸들러 사용
-    """
-    request = Request(scope, receive)
-
+# [수정됨] 다시 표준 Request 핸들러로 돌아왔습니다. (TypeError 해결)
+async def handle_root(request: Request):
+    
     # 1. OPTIONS (CORS)
     if request.method == "OPTIONS":
-        response = Response(status_code=200, headers={
+        return Response(status_code=200, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
             "Access-Control-Allow-Headers": "*",
         })
-        await response(scope, receive, send)
-        return
 
     # 2. GET (SSE & Health Check)
     if request.method == "GET":
         accept = request.headers.get("accept", "")
         if "text/event-stream" in accept:
-            async with sse_transport.connect_sse(scope, receive, send) as streams:
-                await mcp._mcp_server.run(streams[0], streams[1], mcp._mcp_server.create_initialization_options())
-            return
+            # MCP 라이브러리(SSE)를 ASGIResponder로 감싸서 실행
+            return ASGIResponder(lambda s, r, send: sse_transport.connect_sse(
+                s, r, send, mcp._mcp_server.create_initialization_options()
+            ))
         
-        response = JSONResponse({"status": "online", "mode": "Hybrid (SSE + Stateless)"})
-        await response(scope, receive, send)
-        return
+        return JSONResponse({"status": "online", "mode": "Hybrid"})
 
     # 3. POST (Streamable HTTP)
     if request.method == "POST":
         session_id = request.query_params.get("session_id")
         
         if session_id:
-            # 세션 ID가 있으면 라이브러리 로직 사용 (SSE 모드)
-            await sse_transport.handle_post_message(scope, receive, send)
+            # ID 있으면 -> 라이브러리 사용 (ASGIResponder로 감싸기)
+            return ASGIResponder(sse_transport.handle_post_message)
         else:
-            # [핵심] 세션 ID가 없으면 우리가 만든 Stateless 핸들러 사용! (Inspector/카카오 모드)
-            response = await handle_stateless_jsonrpc(request)
-            await response(scope, receive, send)
-        return
+            # ID 없으면 -> 우리가 만든 Stateless Handler 사용! (여기가 핵심)
+            return await handle_stateless_jsonrpc(request)
 
-    response = Response(status_code=405)
-    await response(scope, receive, send)
+    return Response(status_code=405)
 
 # CORS 미들웨어
 middleware = [
@@ -240,9 +208,9 @@ app = Starlette(
 )
 
 # =========================
-# 8. 실행
+# 9. 서버 실행
 # =========================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    print(f"🚀 Stock Pattern Analyzer (Hybrid Mode) running on 0.0.0.0:{port}", file=sys.stderr)
+    print(f"🚀 Stock Pattern Analyzer running on 0.0.0.0:{port}", file=sys.stderr)
     uvicorn.run(app, host="0.0.0.0", port=port, workers=1, reload=False)
