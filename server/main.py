@@ -1,16 +1,24 @@
 import sys
 import os
 from pathlib import Path
-import uvicorn 
+from typing import Dict, Any, Optional
 
 # 1. 경로 보정
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
-# 2. 필요한 모듈 임포트
+# 2. 필수 모듈 임포트
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.responses import JSONResponse
+from starlette.requests import Request
 from mcp.server.fastmcp import FastMCP
+from mcp.server.sse import SseServerTransport
 
-# tools 가져오기
+# =========================
+# 3. [복구] 기존 주가 분석 툴 임포트
+# =========================
 try:
     from tools.quant_engine import analyzer
 except ImportError:
@@ -20,18 +28,12 @@ except ImportError:
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from tools.quant_engine import analyzer
 
-# 3. [서버 설정] 포트 및 호스트 설정
-# Streamable HTTP를 위해 0.0.0.0 호스트 설정이 필수입니다.
-port = int(os.getenv("PORT", 8000))
+# 4. FastMCP 초기화 (이름 복구)
+mcp = FastMCP("Stock-Pattern-Analyzer")
 
-mcp = FastMCP(
-    "Stock-Pattern-Analyzer", 
-    host="0.0.0.0", 
-    port=port
-)
-
-# 4. 툴 등록
-# [핵심 수정] description을 데코레이터에 명시하여 'tools/list' 응답에 확실히 포함되도록 함
+# =========================
+# 5. [복구] 주가 분석 툴 등록
+# =========================
 @mcp.tool(
     name="analyze_stock_pattern",
     description="주식의 현재 차트 패턴을 분석하고, 과거 10년 치 데이터 중 가장 유사했던 시점을 찾아줍니다."
@@ -40,7 +42,6 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     """
     주식의 현재 차트 패턴을 분석하고, 과거 10년 치 데이터 중 가장 유사했던 시점을 찾아줍니다.
     """
-    # 에러 처리 강화: 서버가 죽지 않고 에러 메시지를 반환하도록 함
     try:
         result = await analyzer.find_similar_patterns(ticker, window_size=window_days)
     except Exception as e:
@@ -70,22 +71,50 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     response += "\n⚠️ 이 분석은 과거의 통계적 유사성만을 보여주며, 미래의 수익을 보장하지 않습니다."
     return response
 
-app = mcp._get_asgi_app()
+# =========================
+# 6. [핵심] Starlette 앱 구성 (연결 문제 해결)
+# =========================
 
-# 루트 엔드포인트 추가
-from starlette.responses import JSONResponse
+# FastMCP 내부 서버 객체를 이용해 전송 계층 생성 (루트 경로에서 처리)
+sse_transport = SseServerTransport("/")
 
-@app.route("/")
-async def root(request):
-    return JSONResponse({
-        "service": "Stock Pattern Analyzer MCP",
-        "status": "running",
-        "endpoints": {
-            "sse": "/sse",
-            "messages": "/messages"
-        }
-    })
+async def handle_root(request: Request):
+    """
+    단일 엔드포인트(/)에서 Health Check, SSE, POST를 모두 처리
+    """
+    if request.method == "GET":
+        # 1. SSE 연결 요청 처리 (Inspector/Claude 연결)
+        accept = request.headers.get("accept", "")
+        if "text/event-stream" in accept:
+            async with sse_transport.connect_sse(request.scope, request.receive, request._send) as streams:
+                await mcp._mcp_server.run(streams[0], streams[1], mcp._mcp_server.create_initialization_options())
+            return
+        
+        # 2. 일반 GET 요청 (Koyeb Health Check 등) -> 200 OK 반환 (404 해결)
+        return JSONResponse({
+            "status": "online",
+            "service": "Stock-Pattern-Analyzer",
+            "endpoints": ["/ (GET: SSE)", "/ (POST: JSON-RPC)"]
+        })
 
+    elif request.method == "POST":
+        # 3. Streamable HTTP 메시지 처리 (도구 실행)
+        await sse_transport.handle_post_message(request.scope, request.receive, request._send)
+
+# Starlette 앱 생성
+app = Starlette(
+    debug=True,
+    routes=[
+        Route("/", handle_root, methods=["GET", "POST"]),
+    ]
+)
+
+# =========================
+# 7. 서버 실행
+# =========================
 if __name__ == "__main__":
-    print(f"🚀 Starting MCP Server on 0.0.0.0:{port}", file=sys.stderr)
-    mcp.run(transport='sse')
+    port = int(os.getenv("PORT", 8000))
+    print(f"🚀 Stock Pattern Analyzer running on 0.0.0.0:{port}", file=sys.stderr)
+    
+    # FastMCP.run() 대신 직접 uvicorn 실행
+    uvicorn.run(app, host="0.0.0.0", port=port)
