@@ -163,7 +163,17 @@ sse_transport = SseServerTransport("/")
 
 
 async def handle_root(request: Request):
-    if request.method == "GET":
+     if request.method == "OPTIONS":
+        return Response(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+            }
+        )
+
+    elif request.method == "GET":
         accept = request.headers.get("accept", "")
         if "text/event-stream" in accept:
             # SSE
@@ -210,7 +220,7 @@ app = Starlette(
 
     routes=[
 
-        Route("/", handle_root, methods=["GET", "POST"]),
+        Route("/", handle_root, methods=["GET", "POST","OPTIONS"]),
 
     ],
 
