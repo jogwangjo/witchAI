@@ -13,11 +13,14 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.responses import JSONResponse
 from starlette.requests import Request
+from starlette.middleware import Middleware  # [추가]
+from starlette.middleware.cors import CORSMiddleware  # [추가] CORS 미들웨어
+
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
 
 # =========================
-# 3. [복구] 기존 주가 분석 툴 임포트
+# 3. 기존 주가 분석 툴 임포트
 # =========================
 try:
     from tools.quant_engine import analyzer
@@ -28,11 +31,11 @@ except ImportError:
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from tools.quant_engine import analyzer
 
-# 4. FastMCP 초기화 (이름 복구)
+# 4. FastMCP 초기화
 mcp = FastMCP("Stock-Pattern-Analyzer")
 
 # =========================
-# 5. [복구] 주가 분석 툴 등록
+# 5. 주가 분석 툴 등록
 # =========================
 @mcp.tool(
     name="analyze_stock_pattern",
@@ -72,25 +75,20 @@ async def analyze_stock_pattern(ticker: str, window_days: int = 30) -> str:
     return response
 
 # =========================
-# 6. [핵심] Starlette 앱 구성 (연결 문제 해결)
+# 6. Starlette 앱 구성 (CORS 추가됨)
 # =========================
 
-# FastMCP 내부 서버 객체를 이용해 전송 계층 생성 (루트 경로에서 처리)
 sse_transport = SseServerTransport("/")
 
 async def handle_root(request: Request):
-    """
-    단일 엔드포인트(/)에서 Health Check, SSE, POST를 모두 처리
-    """
+    """단일 엔드포인트(/)에서 모든 요청 처리"""
     if request.method == "GET":
-        # 1. SSE 연결 요청 처리 (Inspector/Claude 연결)
         accept = request.headers.get("accept", "")
         if "text/event-stream" in accept:
             async with sse_transport.connect_sse(request.scope, request.receive, request._send) as streams:
                 await mcp._mcp_server.run(streams[0], streams[1], mcp._mcp_server.create_initialization_options())
             return
         
-        # 2. 일반 GET 요청 (Koyeb Health Check 등) -> 200 OK 반환 (404 해결)
         return JSONResponse({
             "status": "online",
             "service": "Stock-Pattern-Analyzer",
@@ -98,15 +96,24 @@ async def handle_root(request: Request):
         })
 
     elif request.method == "POST":
-        # 3. Streamable HTTP 메시지 처리 (도구 실행)
         await sse_transport.handle_post_message(request.scope, request.receive, request._send)
 
-# Starlette 앱 생성
+# [핵심 수정] CORS 미들웨어 설정
+middleware = [
+    Middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # 모든 사이트에서 접속 허용 (Inspector 포함)
+        allow_methods=["*"],  # GET, POST, OPTIONS 모두 허용
+        allow_headers=["*"],  # 모든 헤더 허용
+    )
+]
+
 app = Starlette(
     debug=True,
     routes=[
         Route("/", handle_root, methods=["GET", "POST"]),
-    ]
+    ],
+    middleware=middleware  # 미들웨어 적용
 )
 
 # =========================
@@ -116,5 +123,5 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     print(f"🚀 Stock Pattern Analyzer running on 0.0.0.0:{port}", file=sys.stderr)
     
-    # [핵심 수정] workers=1, reload=False를 명시하여 Koyeb 환경 변수(WEB_CONCURRENCY) 무시
+    # workers=1, reload=False 유지 (Koyeb 충돌 방지)
     uvicorn.run(app, host="0.0.0.0", port=port, workers=1, reload=False)
