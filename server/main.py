@@ -173,7 +173,7 @@ async def handle_root(request: Request):
             }
         )
 
-    elif request.method == "GET":
+    if request.method == "GET":
         accept = request.headers.get("accept", "")
         if "text/event-stream" in accept:
             # SSE
