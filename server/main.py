@@ -116,5 +116,5 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     print(f"🚀 Stock Pattern Analyzer running on 0.0.0.0:{port}", file=sys.stderr)
     
-    # FastMCP.run() 대신 직접 uvicorn 실행
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # [핵심 수정] workers=1, reload=False를 명시하여 Koyeb 환경 변수(WEB_CONCURRENCY) 무시
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=1, reload=False)
