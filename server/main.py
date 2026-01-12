@@ -67,4 +67,4 @@ if __name__ == "__main__":
     
     # FastMCP의 run 메서드에 직접 host와 port를 전달
     # (예전 코드처럼 복잡하게 uvicorn을 패치하지 않아도, 최신 FastMCP는 인자를 받습니다)
-    mcp.run(transport='sse', host=host, port=port)
+    mcp.run(transport='sse')
