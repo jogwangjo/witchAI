@@ -223,20 +223,20 @@ async def scan_technical_signals(ticker: str) -> str:
                         "🔴 매도 고려" if buy_score == 0 else "⚪ 관망"
         
         return f"""📊 [{ticker}] 기술적 지표 종합 스캔
-            💵 현재가: ${current:.2f}
+💵 현재가: ${current:.2f}
 
-            📈 지표 분석:
-            1️⃣ RSI(14): {rsi:.1f} → {rsi_signal}
-            2️⃣ 이동평균: MA20=${ma20:.2f}, MA50=${ma50:.2f} → {ma_signal}
-            3️⃣ 볼린저밴드: ${lower_band:.2f} ~ ${upper_band:.2f} → {bb_signal}
+📈 지표 분석:
+1️⃣ RSI(14): {rsi:.1f} → {rsi_signal}
+2️⃣ 이동평균: MA20=${ma20:.2f}, MA50=${ma50:.2f} → {ma_signal}
+3️⃣ 볼린저밴드: ${lower_band:.2f} ~ ${upper_band:.2f} → {bb_signal}
 
-            🎯 종합 판단: {recommendation}
-            📊 매수 신호 점수: {buy_score}/3
+🎯 종합 판단: {recommendation}
+📊 매수 신호 점수: {buy_score}/3
 
-            ⚠️ 이는 참고용이며, 반드시 추가 분석과 함께 사용하세요."""
-                    
-                except Exception as e:
-                    return f"⚠️ 오류: {str(e)}"
+⚠️ 이는 참고용이며, 반드시 추가 분석과 함께 사용하세요."""
+        
+    except Exception as e:
+        return f"⚠️ 오류: {str(e)}"
 
 # =========================
 # 6. Stateless Streamable HTTP 핸들러 (2025-03-26 규격)
