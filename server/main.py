@@ -258,45 +258,204 @@ async def handle_stateless_jsonrpc(request: Request):
         # 1. Initialize
         if method == "initialize":
             return JSONResponse({
-                "jsonrpc": "2.0", "id": msg_id,
+                "jsonrpc": "2.0", 
+                "id": msg_id,
                 "result": {
                     "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "Stock-Analyzer", "version": "1.0.0"}
+                    "capabilities": {
+                        "tools": {},
+                        "prompts": {},
+                        "resources": {}
+                    },
+                    "serverInfo": {
+                        "name": "Stock-Analyzer", 
+                        "version": "1.0.0"
+                    }
                 }
             })
 
         # 2. Tools List
         if method == "tools/list":
             tools_data = []
-            # FastMCP 내부에서 등록된 도구 목록 추출
-            for tool in mcp._mcp_server.list_tools():
-                tools_data.append({
-                    "name": tool.name,
-                    "description": tool.description or "",
-                    "inputSchema": tool.inputSchema
-                })
+            # FastMCP에서 등록된 도구 목록 가져오기
+            try:
+                # 방법 1: FastMCP의 _tools 딕셔너리에서 직접 가져오기
+                for tool_name, tool_info in mcp._tools.items():
+                    tools_data.append({
+                        "name": tool_name,
+                        "description": tool_info.get("description", ""),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": tool_info.get("input_schema", {}),
+                            "required": []
+                        }
+                    })
+            except:
+                # 방법 2: 하드코딩된 도구 목록
+                tools_data = [
+                    {
+                        "name": "find_historical_pattern",
+                        "description": "현재 차트 패턴과 가장 유사한 과거 시점을 찾아 분석합니다.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "window_days": {"type": "integer", "default": 30}
+                            },
+                            "required": ["ticker"]
+                        }
+                    },
+                    {
+                        "name": "calculate_volatility_regime",
+                        "description": "주식의 변동성 체제를 분석합니다.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "lookback_days": {"type": "integer", "default": 252}
+                            },
+                            "required": ["ticker"]
+                        }
+                    },
+                    {
+                        "name": "detect_support_resistance",
+                        "description": "주요 지지선/저항선을 자동으로 탐지합니다.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "period": {"type": "string", "default": "6mo"}
+                            },
+                            "required": ["ticker"]
+                        }
+                    },
+                    {
+                        "name": "compare_relative_strength",
+                        "description": "특정 종목의 상대 강도를 벤치마크와 비교합니다.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "benchmark": {"type": "string", "default": "SPY"},
+                                "period": {"type": "string", "default": "1y"}
+                            },
+                            "required": ["ticker"]
+                        }
+                    },
+                    {
+                        "name": "scan_technical_signals",
+                        "description": "여러 기술적 지표를 종합하여 매수/매도 신호를 스캔합니다.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"}
+                            },
+                            "required": ["ticker"]
+                        }
+                    }
+                ]
+            
             return JSONResponse({
-                "jsonrpc": "2.0", "id": msg_id,
-                "result": {"tools": tools_data}
+                "jsonrpc": "2.0", 
+                "id": msg_id,
+                "result": {
+                    "tools": tools_data
+                }
             })
 
         # 3. Call Tool
         if method == "tools/call":
             tool_name = params.get("name")
             tool_args = params.get("arguments", {})
-            # FastMCP의 call_tool을 직접 호출
-            result = await mcp.call_tool(tool_name, tool_args)
-            content = [{"type": "text", "text": item.text} for item in result if item.type == "text"]
-            return JSONResponse({
-                "jsonrpc": "2.0", "id": msg_id,
-                "result": {"content": content}
-            })
+            
+            # 도구 실행
+            try:
+                if tool_name == "find_historical_pattern":
+                    result = await find_historical_pattern(
+                        ticker=tool_args.get("ticker"),
+                        window_days=tool_args.get("window_days", 30)
+                    )
+                elif tool_name == "calculate_volatility_regime":
+                    result = await calculate_volatility_regime(
+                        ticker=tool_args.get("ticker"),
+                        lookback_days=tool_args.get("lookback_days", 252)
+                    )
+                elif tool_name == "detect_support_resistance":
+                    result = await detect_support_resistance(
+                        ticker=tool_args.get("ticker"),
+                        period=tool_args.get("period", "6mo")
+                    )
+                elif tool_name == "compare_relative_strength":
+                    result = await compare_relative_strength(
+                        ticker=tool_args.get("ticker"),
+                        benchmark=tool_args.get("benchmark", "SPY"),
+                        period=tool_args.get("period", "1y")
+                    )
+                elif tool_name == "scan_technical_signals":
+                    result = await scan_technical_signals(
+                        ticker=tool_args.get("ticker")
+                    )
+                else:
+                    return JSONResponse({
+                        "jsonrpc": "2.0", 
+                        "id": msg_id,
+                        "error": {
+                            "code": -32601,
+                            "message": f"Method not found: {tool_name}"
+                        }
+                    })
+                
+                # 결과 형식 맞추기
+                return JSONResponse({
+                    "jsonrpc": "2.0", 
+                    "id": msg_id,
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": result
+                            }
+                        ]
+                    }
+                })
+                
+            except Exception as e:
+                return JSONResponse({
+                    "jsonrpc": "2.0", 
+                    "id": msg_id,
+                    "error": {
+                        "code": -32000,
+                        "message": f"Tool execution error: {str(e)}"
+                    }
+                })
 
-        return JSONResponse({"jsonrpc": "2.0", "id": msg_id, "result": {}})
+        return JSONResponse({
+            "jsonrpc": "2.0", 
+            "id": msg_id,
+            "error": {
+                "code": -32601,
+                "message": f"Method not found: {method}"
+            }
+        })
+        
+    except json.JSONDecodeError:
+        return JSONResponse({
+            "jsonrpc": "2.0", 
+            "id": None,
+            "error": {
+                "code": -32700,
+                "message": "Parse error: Invalid JSON"
+            }
+        })
     except Exception as e:
-        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": str(e)}})
-
+        return JSONResponse({
+            "jsonrpc": "2.0", 
+            "id": None,
+            "error": {
+                "code": -32000,
+                "message": str(e)
+            }
+        })
 # =========================
 # 7. 통합 핸들러 (SSE + Streamable POST)
 # =========================
