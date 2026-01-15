@@ -384,19 +384,10 @@ async def handle_root(request: Request):
 
     elif request.method == "POST":
         # ⭐ 핵심 수정: JSON-RPC 직접 처리
-        body = await request.json()
-        
-        # 세션 생성
-        from mcp.server.session import ServerSession
-        from mcp.server.stdio import stdio_server
-        
-        read_stream, write_stream = stdio_server()
-        
-        async with mcp._mcp_server.run(read_stream, write_stream, mcp._mcp_server.create_initialization_options()):
-            # 요청 처리
-            response_data = await mcp._mcp_server.handle_request(body)
-        
-        return JSONResponse(response_data)
+        await sse_transport.handle_post_message(
+        request.scope, request.receive, request._send
+        )
+        return Response()
 
     return Response(status_code=405)
 
