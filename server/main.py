@@ -352,61 +352,60 @@ async def scan_technical_signals(ticker: str) -> str:
 # 6. Starlette 앱 구성 (Streamable HTTP 완전 지원)
 # =========================
 
-sse_transport = SseServerTransport("/")
+sse_transport = SseServerTransport("/messages")
 
-async def handle_root(request: Request):
-    if request.method == "OPTIONS":
-        return Response(
-            status_code=200,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-            }
-        )
-    
-    if request.method == "GET":
-        accept = request.headers.get("accept", "")
-        if "text/event-stream" in accept:
-            async with sse_transport.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
-                await mcp._mcp_server.run(
-                    streams[0], streams[1], 
-                    mcp._mcp_server.create_initialization_options()
-                )
-            return Response()
-        
-        return JSONResponse({
-            "status": "online",
-            "service": "Stock-Pattern-Analyzer"
-        })
-
-    elif request.method == "POST":
-        # ⭐ 핵심 수정: JSON-RPC 직접 처리
-        await sse_transport.handle_post_message(
+async def handle_sse(request: Request):
+    """
+    GET /sse 요청을 처리하여 SSE 연결을 수립합니다.
+    """
+    async with sse_transport.connect_sse(
         request.scope, request.receive, request._send
+    ) as (read_stream, write_stream):
+        await mcp._mcp_server.run(
+            read_stream,
+            write_stream,
+            mcp._mcp_server.create_initialization_options()
         )
-        return Response()
 
-    return Response(status_code=405)
+async def handle_messages(scope, receive, send):
+    """
+    POST /messages: 클라이언트의 JSON-RPC 요청을 처리합니다.
+    ⭐ RuntimeError 방지를 위해 Starlette의 Request 객체를 쓰지 않고 
+       Raw ASGI 인터페이스를 직접 사용하여 중복 응답을 막습니다.
+    """
+    await sse_transport.handle_post_message(scope, receive, send)
 
-# CORS 미들웨어 설정 (모든 도메인 허용)
+async def handle_index(request: Request):
+    """서버 상태 확인"""
+    return JSONResponse({
+        "status": "online",
+        "transport": "sse",
+        "endpoints": {
+            "sse": "/sse",
+            "messages": "/messages"
+        }
+    })
+# CORS 설정 (심사 시 중요)
+
+routes = [
+    Route("/", handle_index, methods=["GET"]),
+    Route("/sse", handle_sse, methods=["GET"]),
+    # POST 핸들러는 Raw ASGI 함수로 등록하여 Starlette의 자동 응답 생성을 우회함
+    Route("/messages", endpoint=handle_messages, methods=["POST"]),
+]
+
 middleware = [
     Middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
-        allow_credentials=True,
     )
 ]
 
 app = Starlette(
     debug=True,
-    routes=[
-        Route("/", handle_root, methods=["GET", "POST", "OPTIONS"]),
-    ],
+    routes=routes,
     middleware=middleware
 )
 
@@ -415,8 +414,5 @@ app = Starlette(
 # =========================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    print(f"🚀 Stock Pattern Analyzer MCP Server", file=sys.stderr)
-    print(f"📡 Listening on 0.0.0.0:{port}", file=sys.stderr)
-    print(f"✅ Transport: SSE + Streamable HTTP", file=sys.stderr)
-    
-    uvicorn.run(app, host="0.0.0.0", port=port, workers=1, reload=False)
+    # Streamable HTTP는 보통 1개의 worker로 실행해야 세션 유지가 됩니다.
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=1)
