@@ -1,9 +1,8 @@
 import sys
 import os
 import json
-import asyncio
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 # 1. 경로 보정
 BASE_DIR = Path(__file__).resolve().parent
@@ -22,7 +21,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
 
 # =========================
-# 3. 기존 주가 분석 엔진 임포트
+# 3. 기존 주가 분석 툴 임포트
 # =========================
 try:
     from tools.quant_engine import analyzer
@@ -33,7 +32,7 @@ except ImportError:
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from tools.quant_engine import analyzer
 
-# 4. FastMCP 초기화 (SDK 사용)
+# 4. FastMCP 초기화
 mcp = FastMCP("Stock-Pattern-Analyzer")
 
 # =========================
@@ -237,44 +236,40 @@ async def scan_technical_signals(ticker: str) -> str:
         
     except Exception as e:
         return f"⚠️ 오류: {str(e)}"
-
 # =========================
-# 6. Stateless Streamable HTTP 핸들러 (2025-03-26 규격)
+# 6. Bridge 클래스 및 Stateless 핸들러 (옛날 설정 복구)
 # =========================
 
-async def handle_mcp_stateless(request: Request):
-    """
-    심사 정책 준수: Stateless(No Session) + Streamable HTTP 지원
-    """
+class ASGIResponder(Response):
+    """Starlette와 MCP ASGI 핸들러 사이의 가교 역할"""
+    def __init__(self, app):
+        self.app = app
+    async def __call__(self, scope, receive, send):
+        await self.app(scope, receive, send)
+
+async def handle_stateless_jsonrpc(request: Request):
+    """Session ID가 없는 일반 POST 요청(Streamable HTTP)을 수동으로 처리"""
     try:
         body = await request.json()
         method = body.get("method")
         msg_id = body.get("id")
         params = body.get("params", {})
 
-        # 1. Initialize (프로토콜 버전 2025-03-26 준수)
+        # 1. Initialize
         if method == "initialize":
             return JSONResponse({
-                "jsonrpc": "2.0",
-                "id": msg_id,
+                "jsonrpc": "2.0", "id": msg_id,
                 "result": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {
-                        "tools": {"listChanged": True},
-                        "resources": {"listChanged": True},
-                        "prompts": {"listChanged": True},
-                        "logging": {}
-                    },
-                    "serverInfo": {
-                        "name": "Stock-Pattern-Analyzer",
-                        "version": "1.1.0"
-                    }
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "Stock-Analyzer", "version": "1.0.0"}
                 }
             })
 
-        # 2. tools/list
+        # 2. Tools List
         if method == "tools/list":
             tools_data = []
+            # FastMCP 내부에서 등록된 도구 목록 추출
             for tool in mcp._mcp_server.list_tools():
                 tools_data.append({
                     "name": tool.name,
@@ -282,97 +277,58 @@ async def handle_mcp_stateless(request: Request):
                     "inputSchema": tool.inputSchema
                 })
             return JSONResponse({
-                "jsonrpc": "2.0",
-                "id": msg_id,
+                "jsonrpc": "2.0", "id": msg_id,
                 "result": {"tools": tools_data}
             })
 
-        # 3. tools/call
+        # 3. Call Tool
         if method == "tools/call":
             tool_name = params.get("name")
             tool_args = params.get("arguments", {})
-            
-            # SDK를 통한 실제 도구 실행
-            call_result = await mcp.call_tool(tool_name, tool_args)
-            
-            # 응답 컨텐츠 배열 구성
-            content = []
-            for item in call_result:
-                if hasattr(item, "text"):
-                    content.append({"type": "text", "text": str(item.text)})
-                elif hasattr(item, "data"):
-                    content.append({"type": "image", "data": item.data, "mimeType": item.mimeType})
-
+            # FastMCP의 call_tool을 직접 호출
+            result = await mcp.call_tool(tool_name, tool_args)
+            content = [{"type": "text", "text": item.text} for item in result if item.type == "text"]
             return JSONResponse({
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "content": content,
-                    "isError": False
-                }
+                "jsonrpc": "2.0", "id": msg_id,
+                "result": {"content": content}
             })
 
-        # 4. Notifications (initialized 등) - 응답 없음(204)
-        if msg_id is None:
-            return Response(status_code=204)
-
-        # 5. Ping
-        if method == "ping":
-            return JSONResponse({"jsonrpc": "2.0", "id": msg_id, "result": {}})
-
-        # 그 외 처리되지 않은 메서드
-        return JSONResponse({
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "error": {"code": -32601, "message": f"Method {method} not found"}
-        })
-
+        return JSONResponse({"jsonrpc": "2.0", "id": msg_id, "result": {}})
     except Exception as e:
-        return JSONResponse({
-            "jsonrpc": "2.0",
-            "id": msg_id if 'msg_id' in locals() else None,
-            "error": {"code": -32603, "message": str(e)}
-        })
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": str(e)}})
 
 # =========================
-# 7. 통합 엔드포인트 및 서버 설정
+# 7. 통합 핸들러 (SSE + Streamable POST)
 # =========================
 
 sse_transport = SseServerTransport("/")
 
 async def handle_root(request: Request):
-    # 1. CORS Preflight
+    # 1. OPTIONS (CORS)
     if request.method == "OPTIONS":
-        return Response(status_code=200, headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        })
+        return Response(status_code=200, headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "*", "Access-Control-Allow-Headers": "*"})
 
-    # 2. GET (SSE 연결 - Remote MCP 지원용)
+    # 2. GET (SSE 연결)
     if request.method == "GET":
-        accept = request.headers.get("accept", "")
-        if "text/event-stream" in accept:
+        if "text/event-stream" in request.headers.get("accept", ""):
             async def sse_app(scope, receive, send):
                 async with sse_transport.connect_sse(scope, receive, send) as streams:
-                    await mcp._mcp_server.run(
-                        streams[0], streams[1], 
-                        mcp._mcp_server.create_initialization_options()
-                    )
-            # ASGI 직접 응답으로 세션 유지 오류 방지
-            await sse_app(request.scope, request.receive, request._send)
-            return Response()
-        
-        return JSONResponse({"status": "running", "spec": "2025-03-26", "transport": "streamable-http"})
+                    await mcp._mcp_server.run(streams[0], streams[1], mcp._mcp_server.create_initialization_options())
+            return ASGIResponder(sse_app)
+        return JSONResponse({"status": "running", "mode": "hybrid-streamable"})
 
-    # 3. POST (Stateless Streamable HTTP 처리)
+    # 3. POST (메시지 전송)
     if request.method == "POST":
-        # sessionId 유무에 관계없이 Stateless 핸들러로 응답 규격을 통일하여 -32001 오류 해결
-        return await handle_mcp_stateless(request)
+        # 세션 ID가 있으면 SDK의 SSE 핸들러에 위임
+        if request.query_params.get("sessionId") or request.query_params.get("session_id"):
+            return ASGIResponder(sse_transport.handle_post_message)
+        # 세션 ID가 없으면 수동 JSON-RPC 핸들러로 처리 (Streamable HTTP 호환)
+        else:
+            return await handle_stateless_jsonrpc(request)
 
     return Response(status_code=405)
 
-# 앱 인스턴스
+# 앱 설정
 app = Starlette(
     debug=True,
     routes=[Route("/", endpoint=handle_root, methods=["GET", "POST", "OPTIONS"])],
@@ -381,5 +337,4 @@ app = Starlette(
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    # 2025-03-26 스펙 준수를 위해 1개의 워커로 실행
     uvicorn.run(app, host="0.0.0.0", port=port, workers=1)
