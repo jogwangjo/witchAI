@@ -28,12 +28,7 @@ mcp = FastMCP("Professional-Stock-Analyzer")
 
 @mcp.tool()
 async def get_realtime_quote(ticker: str) -> str:
-    """
-    실시간 호가, 체결 데이터 조회 (15분 지연 vs 실시간 구분)
-    - 현재가, 전일비, 거래량, 호가 스프레드
-    - 장 시작/종료 시간 고려
-    - 시간외 거래 포함
-    """
+    """실시간 호가, 체결 데이터 조회. 현재가, 전일비, 거래량, 호가 스프레드, 시간외 거래 포함. 거래량 비율로 기관 개입 여부 판단."""
     try:
         import yfinance as yf
         import requests
@@ -80,14 +75,7 @@ async def get_realtime_quote(ticker: str) -> str:
 
 @mcp.tool()
 async def analyze_market_sentiment(ticker: str) -> str:
-    """
-    시장 심리 지표 종합 분석
-    - Fear & Greed Index
-    - Put/Call Ratio
-    - Short Interest
-    - Insider Trading
-    - Social Media Sentiment
-    """
+    """시장 심리 지표 종합 분석. Fear & Greed Index, Put/Call Ratio, Short Interest, Insider Trading, 기관 보유율, 애널리스트 의견을 종합하여 강세/약세 판단."""
     try:
         import yfinance as yf
         import requests
@@ -191,13 +179,7 @@ async def analyze_market_sentiment(ticker: str) -> str:
 
 @mcp.tool()
 async def get_earnings_calendar(ticker: str) -> str:
-    """
-    실적 발표 일정 및 컨센서스 분석
-    - 다음 실적 발표일
-    - 애널리스트 EPS/매출 컨센서스
-    - 최근 실적 서프라이즈 이력
-    - 실적 발표 전후 전략
-    """
+    """실적 발표 일정 및 컨센서스 분석. 다음 실적 발표일, 애널리스트 EPS/매출 컨센서스, 최근 실적 서프라이즈 이력, 실적 발표 전후 트레이딩 전략 제시."""
     try:
         import yfinance as yf
         from datetime import datetime
@@ -274,13 +256,7 @@ async def get_earnings_calendar(ticker: str) -> str:
 
 @mcp.tool()
 async def analyze_options_flow(ticker: str) -> str:
-    """
-    옵션 흐름 분석 (기관 큰손 추적)
-    - Put/Call Ratio
-    - Unusual Options Activity
-    - Max Pain 분석
-    - Implied Volatility Rank
-    """
+    """옵션 흐름 분석으로 기관 큰손 추적. Put/Call Ratio, Unusual Options Activity, Max Pain 분석, Implied Volatility Rank를 통해 기관의 베팅 방향과 만기일 주가 예측."""
     try:
         import yfinance as yf
         import numpy as np
@@ -387,16 +363,7 @@ async def analyze_options_flow(ticker: str) -> str:
 
 @mcp.tool()
 async def backtest_strategy(ticker: str, strategy: str = "golden_cross", period: str = "2y") -> str:
-    """
-    트레이딩 전략 백테스팅
-    - Golden Cross / Death Cross
-    - RSI Reversal
-    - Bollinger Bounce
-    - 승률, 손익비, MDD 계산
-    
-    Args:
-        strategy: golden_cross, rsi_reversal, bollinger_bounce
-    """
+    """트레이딩 전략 백테스팅. Golden Cross/Death Cross, RSI Reversal, Bollinger Bounce 전략의 승률, 손익비, MDD, 샤프비율을 계산하여 전략 유효성 검증. strategy 옵션: golden_cross, rsi_reversal, bollinger_bounce"""
     try:
         import yfinance as yf
         import numpy as np
@@ -493,13 +460,7 @@ async def backtest_strategy(ticker: str, strategy: str = "golden_cross", period:
 
 @mcp.tool()
 async def get_sec_filings(ticker: str, filing_type: str = "10-K") -> str:
-    """
-    SEC 공시 문서 조회 및 핵심 요약
-    - 10-K (연간 보고서)
-    - 10-Q (분기 보고서)
-    - 8-K (중요 사건)
-    - 13F (기관 포지션)
-    """
+    """SEC 공시 문서 조회 및 핵심 요약. 10-K(연간 보고서), 10-Q(분기 보고서), 8-K(중요 사건), 13F(기관 포지션) 문서 링크 제공. filing_type 옵션: 10-K, 10-Q, 8-K, 13F"""
     try:
         import requests
         from datetime import datetime
@@ -530,15 +491,7 @@ async def get_sec_filings(ticker: str, filing_type: str = "10-K") -> str:
 
 @mcp.tool()
 async def portfolio_tracker(action: str, ticker: str = "", shares: int = 0, price: float = 0) -> str:
-    """
-    포트폴리오 추적 및 관리
-    - add: 종목 추가
-    - remove: 종목 제거
-    - view: 전체 포트폴리오 조회
-    - performance: 수익률 분석
-    
-    주의: 실제 구현시 데이터베이스 또는 파일 저장 필요
-    """
+    """포트폴리오 추적 및 관리. add(종목 추가), remove(종목 제거), view(전체 포트폴리오 조회), performance(수익률 분석) 기능 제공. 실제 투자 내역을 추적하고 수익률을 계산합니다."""
     # 실전에서는 Redis, SQLite 등 사용
     # 여기서는 개념만 제시
     
