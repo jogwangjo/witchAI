@@ -5,3 +5,4 @@ pandas
 scipy
 uvicorn
 starlette
+beautifulsoup4
