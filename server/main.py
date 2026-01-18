@@ -866,7 +866,7 @@ async def gyeonggi_event_finder(city: str = "전체", category: str = "전체") 
 # 🔧 스타트업 API 파서 완전 수정
 
 async def startup_support_finder(age: int = 25, region: str = "경기도") -> str:
-    """창업진흥원 K-Startup API - XML 구조 수정"""
+    """창업진흥원 K-Startup API - 파싱 로직 수정"""
     try:
         cache_key = f"startup_{age}_{region}"
         cached_data = _cache.get(cache_key)
@@ -878,166 +878,114 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
         # K-Startup API 호출
         api_url = "https://apis.data.go.kr/B552735/kisedKstartupService01/getAnnouncementInformation01"
         params = {
-            "serviceKey": STARTUP_API_KEY,
+            "serviceKey": STARTUP_API_KEY, # Decoding Key 사용 권장
             "numOfRows": 100,
             "pageNo": 1
         }
         
         try:
             resp = requests.get(api_url, params=params, timeout=15)
-            
             print(f"[DEBUG] Status Code: {resp.status_code}")
             
             if resp.status_code == 200:
                 try:
+                    # XML 파싱
                     root = ET.fromstring(resp.content)
                     
-                    # 🔥 실제 구조: <results><data><item><col name="...">value</col></item></data></results>
+                    # items 찾기 (네임스페이스 고려하여 유연하게 검색)
                     items = root.findall('.//item')
                     print(f"[DEBUG] Found Items: {len(items)}")
-                    
+
+                    # 만약 item을 못 찾았다면 구조 확인용 로그 출력
+                    if len(items) == 0:
+                        print(f"[DEBUG] XML Preview: {resp.text[:500]}")
+
                     for item in items:
-                        # 🔥 <col name="..."> 형태로 데이터 추출
-                        def get_col_value(col_name):
-                            col = item.find(f".//col[@name='{col_name}']")
-                            return col.text if col is not None and col.text else None
+                        # 1. 태그명으로 직접 찾기 시도 (대소문자 무시하지 않음, 정확한 태그명 필요)
+                        # API 문서 기준 태그명: pbancNm(공고명), bizTrgtAge(대상연령) 등
                         
-                        # 필요한 컬럼들 추출
-                        title = get_col_value('pbanc_nm')  # 공고명
-                        org = get_col_value('instt_nm')  # 기관명
-                        target = get_col_value('sprt_trgt_nm')  # 지원대상명
-                        target_age = get_col_value('biz_trgt_age')  # 사업대상연령
-                        target_biz = get_col_value('biz_enyy')  # 사업연차
-                        content = get_col_value('pbanc_ctnt')  # 공고내용
-                        url = get_col_value('pbanc_url')  # 공고URL
-                        start_date = get_col_value('pbanc_rcpt_bgn_dt')  # 접수시작일
-                        end_date = get_col_value('pbanc_rcpt_end_dt')  # 접수종료일
-                        is_recruiting = get_col_value('rcrt_prgs_yn')  # 모집진행여부
+                        title = item.findtext('pbancNm') or item.findtext('title')
+                        org = item.findtext('insttNm') or item.findtext('org')
+                        target = item.findtext('sprtTrgtNm')
+                        target_age = item.findtext('bizTrgtAge')
+                        content = item.findtext('pbancCtnt')
+                        url = item.findtext('pbancUrl') or item.findtext('detailUrl')
+                        end_date = item.findtext('pbancRcptEndDt')
+                        is_recruiting = item.findtext('rcrtPrgsYn')
                         
-                        # 디버깅
-                        print(f"[ITEM] Title: {title}, Org: {org}, Recruiting: {is_recruiting}")
-                        
+                        # 디버깅: 태그값 확인
+                        # print(f"[ITEM CHECK] Title: {title}, Age: {target_age}")
+
                         # 제목이 없으면 스킵
                         if not title:
                             continue
                         
-                        # 🔥 모집 중인 것만 필터링
-                        if is_recruiting != 'Y':
-                            print(f"[SKIP] Not recruiting: {title}")
+                        # 모집 중인 것만 필터링 (Y가 아니면 스킵)
+                        if is_recruiting and is_recruiting != 'Y':
                             continue
                         
                         support = {
                             'title': title,
                             'org': org or 'K-Startup',
-                            'target': target or target_biz or '창업자',
+                            'target': target or '창업자',
                             'target_age': target_age or '전체',
-                            'amount': '홈페이지 확인',
                             'deadline': end_date or '상시',
-                            'url': url or 'https://www.k-startup.go.kr',
-                            'source': 'API'
+                            'url': url or 'https://www.k-startup.go.kr'
                         }
                         
-                        # 🔥 나이 필터링 개선
+                        # 나이 필터링 로직
                         age_ok = False
-                        
                         if target_age:
-                            # "만 20세 이상 ~ 만 39세 이하" 같은 형태
+                            # 만 39세 이하 처리
                             if age < 40:
                                 if '39세' in target_age or '만 40세 미만' in target_age:
                                     age_ok = True
-                            if '전체' in target_age or '제한없음' in target_age or '미만,만' in target_age:
+                            # 전체/무관 처리
+                            if any(k in target_age for k in ['전체', '제한없음', '누구나', '예비']):
                                 age_ok = True
                         else:
-                            age_ok = True  # 나이 정보 없으면 일단 포함
-                        
-                        # 청년 관련 키워드 체크
-                        if age < 40:
-                            if any(kw in (target or '') for kw in ['청년', '예비창업', '초기창업']):
-                                age_ok = True
+                            age_ok = True # 정보 없으면 포함
                         
                         if age_ok:
                             supports.append(support)
-                            print(f"[ADD] Added: {title}")
-                        else:
-                            print(f"[SKIP] Age filter: {title} (age={age}, target_age={target_age})")
-                    
-                    print(f"[RESULT] Total supports after filtering: {len(supports)}")
                         
-                except ET.ParseError as pe:
-                    return f"""⚠️ XML 파싱 오류: {str(pe)}
-
-🔍 응답 미리보기:
-{resp.text[:500]}...
-
-💡 해결책:
-• K-Startup: https://www.k-startup.go.kr"""
-                    
-            else:
-                return f"⚠️ HTTP 오류: {resp.status_code}\n\n🔗 K-Startup: https://www.k-startup.go.kr"
-                
+                except ET.ParseError:
+                    # XML이 아닌 경우 (JSON일 수도 있음)
+                    try:
+                        data = resp.json()
+                        # JSON 파싱 로직 추가 구현 필요 시 작성
+                        print("[DEBUG] JSON 응답 감지")
+                    except:
+                        print(f"[DEBUG] 파싱 실패. 응답 앞부분: {resp.text[:200]}")
+                        
         except Exception as e:
-            import traceback
-            print(f"[ERROR] {traceback.format_exc()}")
-            return f"""⚠️ API 호출 오류: {str(e)}
+            print(f"[API ERROR] {str(e)}")
+            return f"⚠️ API 오류: {str(e)}"
 
-💡 해결책:
-• K-Startup: https://www.k-startup.go.kr
-• 경기테크노파크: https://www.gtp.or.kr"""
-        
         if not supports:
-            return f"""💰 창업지원금 검색 결과 (0건)
-
-조건: 나이={age}세, 지역={region}
-
-╔═══════════════════════════╗
-⚠️ 현재 모집 중인 지원금이 없습니다
-╚═══════════════════════════╝
-
-🔍 API에서 {len(root.findall('.//item')) if 'root' in locals() else '?'}개 공고를 찾았으나
-나이 조건({age}세)에 맞는 항목이 없습니다.
-
-💡 직접 확인:
-• K-Startup: https://www.k-startup.go.kr
-• 경기테크노파크: https://www.gtp.or.kr
-• 경기도청년정책: https://www.gg.go.kr/youth"""
+            return f"💰 검색 결과 없음 ({age}세)\nAPI 응답은 있었으나 조건에 맞는 공고가 없습니다.\n\n🔗 K-Startup: https://www.k-startup.go.kr"
         
+        # 결과 생성
         result = f"""💰 창업지원금 검색 결과 ({len(supports)}건)
 
 🎯 대상: {age}세 | 지역: {region}
-🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 ✅ K-Startup API (실시간)
 
-╔═══════════════════════════╗
-💵 지원 프로그램
-╚═══════════════════════════╝
-
 """
-        
         for i, s in enumerate(supports[:10], 1):
             result += f"""{i}. 💎 {s['title']}
-🎯 대상: {s['target']}
-👤 연령: {s['target_age']}
+🎯 대상: {s['target']} ({s['target_age']})
 📅 마감: {s['deadline']}
 🏢 주관: {s['org']}
 🔗 {s['url']}
 
 """
-        
-        result += """╔═══════════════════════════╗
-🔗 추천 링크
-╚═══════════════════════════╝
-• K-Startup: https://www.k-startup.go.kr
-• 경기테크노파크: https://www.gtp.or.kr
-• 경기도청년정책: https://www.gg.go.kr/youth"""
-        
         _cache.set(cache_key, result, ttl=43200)
-        return result[:24000]
-        
+        return result
+
     except Exception as e:
         import traceback
-        print(f"[FATAL ERROR] {traceback.format_exc()}")
-        return f"⚠️ 오류: {str(e)}"
-
+        return f"⚠️ 시스템 오류: {str(e)}"
 # =========================
 # 4. 코딩대회 찾기 (전국)
 # =========================
