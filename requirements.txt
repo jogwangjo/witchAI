@@ -6,3 +6,4 @@ beautifulsoup4
 requests
 crawl4ai
 playwright
+curl-cffi

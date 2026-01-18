@@ -93,66 +93,89 @@ GYEONGGI_CITIES = {
 
 CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주시", "오산시", "구리시", 
     "안성시", "포천시", "의왕시", "하남시", "여주시", "동두천시", "과천시", "가평군", "양평군", "연천군"]
-#=======================================
-import asyncio
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode
+from curl_cffi.requests import AsyncSession
+from bs4 import BeautifulSoup
 
+# =========================
+# 3세대 크롤러: TLS Fingerprint 우회 (curl_cffi)
+# =========================
 async def crawl_wevity_async(keyword: str) -> List[Dict]:
-    """Crawl4AI 우회 강화 버전"""
+    """
+    Koyeb/Cloud 서버 차단 우회용 크롤러
+    curl_cffi를 사용하여 '리얼 크롬 브라우저'의 TLS 서명을 흉내냅니다.
+    """
     results = []
     
     try:
-        url = f"https://www.wevity.com/?c=find&s=1&keyword={keyword}"
-        
-        browser_config = BrowserConfig(
-            headless=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            viewport_width=1920,
-            viewport_height=1080,
-            extra_args=["--disable-blink-features=AutomationControlled"]  # 봇 감지 우회
-        )
-        
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            result = await crawler.arun(
-                url=url,
-                magic=True,
-                cache_mode=CacheMode.BYPASS,
-                page_timeout=30000,  # 타임아웃 30초로 단축
-                delay_before_return_html=2.0,  # 페이지 로딩 대기
-                wait_for_selector=".list li",
-                js_code="""
-                    Object.defineProperty(navigator, 'webdriver', {get: () => false});
-                """  # webdriver 숨기기
-            )
+        # 브라우저 흉내 (impersonate="chrome110")
+        async with AsyncSession(impersonate="chrome110") as session:
+            url = f"https://www.wevity.com/?c=find&s=1&keyword={keyword}"
             
-            if result.success:
-                soup = BeautifulSoup(result.html, 'html.parser')
-                items = soup.select('.list li')[1:][:15]
+            # 헤더를 최대한 리얼하게 설정
+            headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Referer": "https://www.wevity.com/",
+                "Upgrade-Insecure-Requests": "1",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+            }
+            
+            # 타임아웃 15초 설정
+            response = await session.get(url, headers=headers, timeout=15)
+            
+            # 200 OK가 아니면 에러 처리
+            if response.status_code != 200:
+                print(f"❌ 접속 차단됨 (Status: {response.status_code})")
+                return []
+
+            # HTML 파싱
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 위비티 리스트 구조 (.list li)
+            items = soup.select('.list li')
+            
+            count = 0
+            for item in items:
+                # 상단 공지 등 필터링 (최대 12개만)
+                if count >= 12: break
                 
-                for item in items:
-                    try:
-                        title_elem = item.select_one('.tit a')
-                        if not title_elem: continue
-                        
-                        link = title_elem.get('href', '')
-                        if not link.startswith('http'):
-                            link = "https://www.wevity.com" + link
-                        
-                        results.append({
-                            'title': title_elem.get_text(strip=True),
-                            'org': item.select_one('.organ').get_text(strip=True) if item.select_one('.organ') else "위비티",
-                            'deadline': item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중",
-                            'url': link,
-                            'source': 'Wevity'
-                        })
-                    except: continue
-                
-                print(f"✅ Crawl4AI 성공: {len(results)}건")
-            else:
-                print(f"❌ 실패: {result.error_message}")
-                
+                try:
+                    title_elem = item.select_one('.tit a')
+                    if not title_elem: continue
+                    
+                    # 제목 가져오기
+                    title = title_elem.get_text(strip=True)
+                    if not title: continue
+                    
+                    # 링크 가져오기
+                    link = title_elem.get('href', '')
+                    if link and not link.startswith('http'):
+                        link = "https://www.wevity.com" + link
+                    
+                    # 주관사
+                    org_elem = item.select_one('.organ')
+                    org = org_elem.get_text(strip=True) if org_elem else "정보없음"
+                    
+                    # 마감일
+                    day_elem = item.select_one('.day')
+                    deadline = day_elem.get_text(strip=True) if day_elem else "진행중"
+
+                    results.append({
+                        'title': title,
+                        'org': org,
+                        'deadline': deadline,
+                        'url': link,
+                        'source': 'Wevity'
+                    })
+                    count += 1
+                    
+                except Exception as e:
+                    continue
+            
+            print(f"✅ curl_cffi 성공: {len(results)}건 가져옴")
+            
     except Exception as e:
-        print(f"❌ 에러: {e}")
+        print(f"❌ curl_cffi 에러: {str(e)}")
     
     return results
 
