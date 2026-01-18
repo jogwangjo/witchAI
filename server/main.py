@@ -279,7 +279,7 @@ async def gyeonggi_scholarship_finder(
 # =========================
 # 2. 경기도 공모전/소식 찾기
 # =========================
- async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체") -> str:
+async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체") -> str:
     """경기도 소식 현황 API 활용 - 샘플 데이터 없음"""
     try:
         cache_key = f"contest_{city}_{category}"
