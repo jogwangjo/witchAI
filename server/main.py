@@ -26,8 +26,8 @@ import requests
 from dotenv import load_dotenv
 load_dotenv()
 
-GYEONGGI_API_KEY = os.getenv("GYEONGGI_API_KEY", "sample_key")
-STARTUP_API_KEY = os.getenv("STARTUP_API_KEY", "sample_key")
+GYEONGGI_API_KEY = os.getenv("GYEONGGI_API_KEY", "16a785f639b14bab8f19ecafc2e537e4")
+STARTUP_API_KEY = os.getenv("STARTUP_API_KEY", "65752ab89d855ec081a761cce8fc9b21ce961abaf77f416907b5093fe38c537a")
 
 
 # =========================
