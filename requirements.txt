@@ -8,5 +8,5 @@ starlette
 python-dotenv
 beautifulsoup4
 requests
-selenium
-webdriver-manager
+crawl4ai
+playwright

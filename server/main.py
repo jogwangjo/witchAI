@@ -93,18 +93,66 @@ GYEONGGI_CITIES = {
 
 CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주시", "오산시", "구리시", 
     "안성시", "포천시", "의왕시", "하남시", "여주시", "동두천시", "과천시", "가평군", "양평군", "연천군"]
+#=======================================
+import asyncio
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode
 
-
-CRAWLER_URL = "https://qg4ys77k2i.execute-api.ap-northeast-2.amazonaws.com/default/wevity-crawler"  # 여기에 붙여넣기
-
-def crawl_wevity(keyword: str) -> List[Dict]:
+async def crawl_wevity_async(keyword: str) -> List[Dict]:
+    """Crawl4AI 비동기 크롤링"""
+    results = []
+    
     try:
-        resp = requests.post(CRAWLER_URL, json={'keyword': keyword}, timeout=15)
-        data = resp.json()
-        if data.get('success'):
-            return data.get('data', [])
-    except: pass
-    return []
+        url = f"https://www.wevity.com/?c=find&s=1&keyword={keyword}"
+        
+        browser_config = BrowserConfig(
+            headless=True,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
+        
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            result = await crawler.arun(
+                url=url,
+                magic=True,
+                cache_mode=CacheMode.BYPASS,
+                wait_for_selector=".list li"
+            )
+            
+            if result.success:
+                soup = BeautifulSoup(result.html, 'html.parser')
+                items = soup.select('.list li')[1:][:15]
+                
+                for item in items:
+                    try:
+                        title_elem = item.select_one('.tit a')
+                        if not title_elem: continue
+                        
+                        link = title_elem.get('href', '')
+                        if not link.startswith('http'):
+                            link = "https://www.wevity.com" + link
+                        
+                        results.append({
+                            'title': title_elem.get_text(strip=True),
+                            'org': item.select_one('.organ').get_text(strip=True) if item.select_one('.organ') else "위비티",
+                            'deadline': item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중",
+                            'url': link,
+                            'source': 'Wevity'
+                        })
+                    except: continue
+                
+                print(f"✅ Crawl4AI 성공: {len(results)}건")
+            else:
+                print(f"❌ 실패: {result.error_message}")
+                
+    except Exception as e:
+        print(f"❌ 에러: {e}")
+    
+    return results
+
+# 동기 wrapper
+def crawl_wevity(keyword: str) -> List[Dict]:
+    """동기 함수로 감싸기"""
+    return asyncio.run(crawl_wevity_async(keyword))
+    
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
 # =========================
