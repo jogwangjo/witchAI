@@ -233,16 +233,13 @@ async def gyeonggi_activity_finder(category: str = "전체") -> str:
         return f"⚠️ 오류: {e}"
 
 
-# =========================
-# 3️⃣ 행사 찾기 (API)
-# =========================
 async def gyeonggi_event_finder(city: str = "전체", category: str = "전체") -> str:
-    """경기도 행사 검색 - API 사용"""
+    """경기도 행사 검색 - 지역별 필터링 강화"""
     try:
         cache_key = f"event_{city}_{category}"
         cached_data = _cache.get(cache_key)
         if cached_data:
-            return cached_data + "\n\n💾 [캐시 데이터 - 2시간 이내]"
+            return cached_data + "\n\n💾 [캐시 데이터]"
         
         events = []
         
@@ -277,49 +274,61 @@ async def gyeonggi_event_finder(city: str = "전체", category: str = "전체") 
                         
                         title = item.get('TITLE', '')
                         cat_nm = item.get('CATEGORY_NM', '')
+                        inst_nm = item.get('INST_NM', '')
                         
-                        if any(k in title or k in cat_nm for k in keywords):
-                            if category != "전체" and category not in cat_nm and category not in title:
+                        # 행사 필터링
+                        if not any(k in title or k in cat_nm for k in keywords):
+                            continue
+                        
+                        # 🔥 지역 필터링 강화
+                        if city != "전체":
+                            # 제목, 기관명, 카테고리 모두에서 지역명 검색
+                            if city not in title and city not in inst_nm and city not in cat_nm:
                                 continue
-                            
-                            end_de = item.get('END_DE', '')
-                            deadline = "미정"
-                            try:
-                                if end_de:
-                                    end_str = str(end_de).replace('-', '').replace('/', '').strip()
-                                    if len(end_str) >= 8:
-                                        end_date = datetime.strptime(end_str[:8], '%Y%m%d')
-                                        days_left = (end_date - datetime.now()).days
-                                        if days_left >= 0:
-                                            deadline = f"D-{days_left}"
-                                        else:
-                                            continue
-                            except:
-                                pass
-                            
-                            events.append({
-                                'title': title,
-                                'org': item.get('INST_NM', '경기도'),
-                                'category': cat_nm,
-                                'deadline': deadline,
-                                'url': item.get('URL', ''),
-                                'source': 'API'
-                            })
+                        
+                        # 카테고리 필터
+                        if category != "전체" and category not in cat_nm and category not in title:
+                            continue
+                        
+                        end_de = item.get('END_DE', '')
+                        deadline = "미정"
+                        try:
+                            if end_de:
+                                end_str = str(end_de).replace('-', '').replace('/', '').strip()
+                                if len(end_str) >= 8:
+                                    end_date = datetime.strptime(end_str[:8], '%Y%m%d')
+                                    days_left = (end_date - datetime.now()).days
+                                    if days_left >= 0:
+                                        deadline = f"D-{days_left}"
+                                    else:
+                                        continue  # 종료된 행사 제외
+                        except:
+                            pass
+                        
+                        events.append({
+                            'title': title,
+                            'org': inst_nm,
+                            'category': cat_nm,
+                            'deadline': deadline,
+                            'url': item.get('URL', ''),
+                            'source': 'API'
+                        })
         except Exception as e:
             print(f"API 오류: {e}")
         
         if not events:
             return f"""🎪 경기도 행사 검색 결과 (0건)
 
-조건: 지역={city}, 카테고리={category}
+📍 조건: 지역={city}, 카테고리={category}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ 현재 진행 중인 행사가 없습니다
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════
+⚠️ 검색 결과가 없습니다
+═══════════════════════════
 
-💡 추천 사이트:
-• 경기도청: https://www.gg.go.kr
-• 경기문화재단: https://www.ggcf.kr"""
+💡 해결책:
+• 지역을 "전체"로 검색
+• 다른 지역명 시도 (예: 용인시 → 용인)
+• 경기도청: https://www.gg.go.kr"""
         
         result = f"""🎪 경기도 행사 검색 결과 ({len(events)}건)
 
@@ -327,9 +336,9 @@ async def gyeonggi_event_finder(city: str = "전체", category: str = "전체") 
 🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 ✅ API 실시간 데이터
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════
 🎉 진행 중인 행사
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════
 
 """
         
@@ -342,14 +351,12 @@ async def gyeonggi_event_finder(city: str = "전체", category: str = "전체") 
 
 """
         
-        result += """━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        result += """═══════════════════════════
 🔗 관련 사이트
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════
 • 경기도청: https://www.gg.go.kr
 • 경기문화재단: https://www.ggcf.kr
-• 경기콘텐츠진흥원: https://www.gcon.or.kr
-
-⚠️ 상세 정보는 주관 기관에서 확인하세요!"""
+• 경기콘텐츠진흥원: https://www.gcon.or.kr"""
         
         _cache.set(cache_key, result, ttl=7200)
         return result[:24000]
@@ -357,24 +364,21 @@ async def gyeonggi_event_finder(city: str = "전체", category: str = "전체") 
     except Exception as e:
         return f"⚠️ 오류: {str(e)}"
 
+
 # =========================
-# 3. 창업지원금 찾기 (전국 데이터)
+# 창업지원금 (샘플 데이터 제거)
 # =========================
 async def startup_support_finder(age: int = 25, region: str = "경기도") -> str:
-    """창업진흥원 K-Startup API 활용
-    
-    API: kisedKstartupService01
-    엔드포인트: https://apis.data.go.kr/B552735/kisedKstartupService01
-    """
+    """창업진흥원 K-Startup API - 샘플 제거"""
     try:
         cache_key = f"startup_{age}_{region}"
         cached_data = _cache.get(cache_key)
         if cached_data:
-            return cached_data + "\n\n💾 [캐시 데이터 - 12시간 이내]"
+            return cached_data + "\n\n💾 [캐시 데이터]"
         
         supports = []
         
-        # 창업진흥원 API 호출 (수정됨)
+        # K-Startup API 호출
         api_url = "https://apis.data.go.kr/B552735/kisedKstartupService01/getAnnouncementInformation01"
         params = {
             "serviceKey": STARTUP_API_KEY,
@@ -386,127 +390,104 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
             resp = requests.get(api_url, params=params, timeout=15)
             
             if resp.status_code == 200:
-                # XML 응답 파싱
                 try:
                     root = ET.fromstring(resp.content)
                     
                     # 결과 코드 확인
                     result_code = root.find('.//resultCode')
+                    result_msg = root.find('.//resultMsg')
+                    
                     if result_code is not None and result_code.text == '00':
-                        # 데이터 파싱
                         items = root.findall('.//item')
                         
                         for item in items:
-                            title = item.find('pbancNm')
-                            org = item.find('insttNm')
-                            target = item.find('sprtTrgtNm')
+                            title_elem = item.find('pbancNm')
+                            org_elem = item.find('insttNm')
+                            target_elem = item.find('sprtTrgtNm')
+                            detail_elem = item.find('pbancUrl')
                             
-                            if title is not None:
-                                supports.append({
-                                    'title': title.text if title.text else '지원사업',
-                                    'org': org.text if org is not None and org.text else 'K-Startup',
-                                    'target': target.text if target is not None and target.text else '창업자',
+                            if title_elem is not None and title_elem.text:
+                                support = {
+                                    'title': title_elem.text,
+                                    'org': org_elem.text if org_elem is not None and org_elem.text else 'K-Startup',
+                                    'target': target_elem.text if target_elem is not None and target_elem.text else '창업자',
                                     'amount': '홈페이지 확인',
                                     'apply': 'K-Startup',
-                                    'url': 'https://www.k-startup.go.kr',
-                                    'source': 'API 데이터'
-                                })
-                except ET.ParseError:
-                    print("XML 파싱 오류")
+                                    'url': detail_elem.text if detail_elem is not None and detail_elem.text else 'https://www.k-startup.go.kr',
+                                    'source': 'API'
+                                }
+                                
+                                # 나이 필터링
+                                if age < 40:
+                                    if '청년' in support['target'] or '39세' in support['target'] or '40세' in support['target']:
+                                        supports.append(support)
+                                    elif '전체' in support['target'] or '제한없음' in support['target']:
+                                        supports.append(support)
+                                else:
+                                    supports.append(support)
+                    else:
+                        error_msg = result_msg.text if result_msg is not None else "알 수 없는 오류"
+                        return f"""💰 창업지원금 검색 실패
+
+❌ API 에러: {result_code.text if result_code is not None else 'UNKNOWN'} - {error_msg}
+
+💡 해결책:
+• K-Startup 직접 방문: https://www.k-startup.go.kr
+• 경기테크노파크: https://www.gtp.or.kr"""
+                        
+                except ET.ParseError as pe:
+                    return f"⚠️ XML 파싱 오류: {str(pe)}\n\n📍 K-Startup: https://www.k-startup.go.kr"
         except Exception as e:
-            print(f"API 호출 오류: {e}")
-        
-        # 샘플 데이터 추가
-        if len(supports) == 0:
-            today = datetime.now()
-            supports = [
-                {
-                    'title': '경기도 예비창업패키지',
-                    'target': '만 39세 이하 경기도 거주자',
-                    'amount': '최대 1억원',
-                    'period': '1년',
-                    'org': '경기도 + 중소벤처기업부',
-                    'apply': 'K-Startup',
-                    'deadline': (today + timedelta(days=45)).strftime('%Y-%m-%d'),
-                    'url': 'https://www.k-startup.go.kr'
-                },
-                {
-                    'title': '경기도 청년창업사관학교',
-                    'target': '만 39세 이하',
-                    'amount': '최대 1억원 + 입주공간',
-                    'period': '1년',
-                    'org': '경기테크노파크',
-                    'apply': '경기TP',
-                    'deadline': (today + timedelta(days=30)).strftime('%Y-%m-%d'),
-                    'url': 'https://www.gtp.or.kr'
-                },
-                {
-                    'title': '청년도약계좌 (경기도 추가 지원)',
-                    'target': '만 19-34세 경기도 청년',
-                    'amount': '월 70만원 + 경기도 추가 10만원',
-                    'period': '5년',
-                    'org': '경기도청 + 금융위원회',
-                    'apply': '은행 방문',
-                    'deadline': '상시',
-                    'url': 'https://www.gg.go.kr'
-                }
-            ]
-            
-            # 나이 필터
-            if age < 35:
-                supports = [s for s in supports if '34세' in s['target'] or '39세' in s['target'] or '청년' in s['target']]
+            return f"⚠️ API 호출 오류: {str(e)}\n\n📍 K-Startup: https://www.k-startup.go.kr"
         
         if not supports:
-            return f"💰 창업/청년지원금 검색 결과 (0건)\n\n조건: 나이={age}세, 지역={region}"
+            return f"""💰 창업지원금 검색 결과 (0건)
+
+조건: 나이={age}세, 지역={region}
+
+═══════════════════════════
+⚠️ 검색 결과가 없습니다
+═══════════════════════════
+
+💡 직접 확인:
+• K-Startup: https://www.k-startup.go.kr
+• 경기테크노파크: https://www.gtp.or.kr
+• 경기도청년정책: https://www.gg.go.kr/youth"""
         
-        result = f"""💰 창업/청년지원금 검색 결과 ({len(supports)}건)
+        result = f"""💰 창업지원금 검색 결과 ({len(supports)}건)
 
 🎯 대상: {age}세 | 지역: {region}
 🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+✅ K-Startup API
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════
 💵 지원 프로그램
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════
 
 """
         
         for i, s in enumerate(supports[:10], 1):
-            deadline_info = s.get('deadline', '홈페이지 확인')
-            try:
-                if deadline_info != '상시' and deadline_info != '홈페이지 확인':
-                    date_obj = datetime.strptime(deadline_info, '%Y-%m-%d')
-                    days_left = (date_obj - datetime.now()).days
-                    if days_left >= 0:
-                        deadline_info += f" (D-{days_left})"
-            except:
-                pass
-            
             result += f"""{i}. 💎 {s['title']}
 🎯 대상: {s['target']}
 💵 금액: {s['amount']}
-{f"⏰ 기간: {s['period']}" if s.get('period') else ""}
-📅 마감: {deadline_info}
 🏢 주관: {s['org']}
 📝 신청: {s.get('apply', '홈페이지')}
-🔗 URL: {s.get('url', 'https://www.k-startup.go.kr')}
+🔗 {s.get('url', 'https://www.k-startup.go.kr')}
 
 """
         
-        result += """━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        result += """═══════════════════════════
 🔗 추천 링크
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════
 • K-Startup: https://www.k-startup.go.kr
 • 경기테크노파크: https://www.gtp.or.kr
-• 경기도 청년정책: https://www.gg.go.kr/youth
-
-⚠️ 신청 자격 및 서류는 반드시 공식 사이트에서 확인하세요!"""
+• 경기도청년정책: https://www.gg.go.kr/youth"""
         
         _cache.set(cache_key, result, ttl=43200)
         return result[:24000]
         
     except Exception as e:
-        return f"⚠️ 오류: {str(e)}\n💡 예시: startup_support_finder(25, '경기도')"
-
+        return f"⚠️ 오류: {str(e)}"
 
 # =========================
 # 4. 코딩대회 찾기 (전국)
