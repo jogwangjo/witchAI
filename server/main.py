@@ -95,72 +95,16 @@ CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주�
     "안성시", "포천시", "의왕시", "하남시", "여주시", "동두천시", "과천시", "가평군", "양평군", "연천군"]
 
 
-import random
-import time
-
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-]
+CRAWLER_URL = "https://qg4ys77k2i.execute-api.ap-northeast-2.amazonaws.com/default/wevity-crawler"  # 여기에 붙여넣기
 
 def crawl_wevity(keyword: str) -> List[Dict]:
-    """위비티 requests 크롤링"""
-    results = []
-    
-    headers = {
-        'User-Agent': random.choice(USER_AGENTS),
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'ko-KR,ko;q=0.9',
-        'Referer': 'https://www.google.com/',
-        'Connection': 'keep-alive',
-    }
-    
-    search_keyword = keyword.replace("경기도", "경기").strip()
-    time.sleep(random.uniform(0.3, 0.8))  # 봇 방지
-    
     try:
-        url = "https://www.wevity.com/"
-        params = {"c": "find", "s": "1", "gp": "1", "keyword": search_keyword}
-        
-        resp = requests.get(url, params=params, headers=headers, timeout=10)
-        print(f"🔍 [{keyword}] 상태: {resp.status_code}, 길이: {len(resp.text)}")
-        
-        if resp.status_code != 200:
-            print(f"❌ 크롤링 실패: {resp.status_code}")
-            return []
-        
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        items = soup.select('ul.list li')[1:]  # 헤더 제외
-        
-        print(f"📦 찾은 항목: {len(items)}개")
-        
-        for item in items[:15]:
-            try:
-                title_elem = item.select_one('.tit a')
-                if not title_elem: continue
-                
-                title = title_elem.get_text(strip=True)
-                link = title_elem.get('href', '')
-                if not link.startswith('http'):
-                    link = "https://www.wevity.com" + link
-                
-                results.append({
-                    'title': title,
-                    'org': item.select_one('.organ').get_text(strip=True) if item.select_one('.organ') else "위비티",
-                    'deadline': item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중",
-                    'url': link,
-                    'source': 'Wevity'
-                })
-            except: 
-                continue
-        
-        print(f"✅ 파싱 성공: {len(results)}건")
-        
-    except Exception as e:
-        print(f"❌ 에러: {e}")
-    
-    return results
+        resp = requests.post(CRAWLER_URL, json={'keyword': keyword}, timeout=15)
+        data = resp.json()
+        if data.get('success'):
+            return data.get('data', [])
+    except: pass
+    return []
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
 # =========================
