@@ -130,11 +130,29 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
                 items = soup.select('.list li')[1:][:15]
                 
                 for item in items:
-                    # ... 기존 파싱 코드 ...
-                    
+                    try:
+                        title_elem = item.select_one('.tit a')
+                        if not title_elem: continue
+                        
+                        link = title_elem.get('href', '')
+                        if not link.startswith('http'):
+                            link = "https://www.wevity.com" + link
+                        
+                        results.append({
+                            'title': title_elem.get_text(strip=True),
+                            'org': item.select_one('.organ').get_text(strip=True) if item.select_one('.organ') else "위비티",
+                            'deadline': item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중",
+                            'url': link,
+                            'source': 'Wevity'
+                        })
+                    except: continue
+                
+                print(f"✅ Crawl4AI 성공: {len(results)}건")
+            else:
+                print(f"❌ 실패: {result.error_message}")
+                
     except Exception as e:
-        print(f"❌ 크롤링 실패: {e}")
-        # 실패 시 빈 리스트 반환
+        print(f"❌ 에러: {e}")
     
     return results
 
