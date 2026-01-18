@@ -107,11 +107,12 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
     results = []
     
     try:
+        print(f"[CRAWL] 위비티 검색 시작: '{keyword}'")
+        
         # 브라우저 흉내 (impersonate="chrome110")
         async with AsyncSession(impersonate="chrome110") as session:
             url = f"https://www.wevity.com/?c=find&s=1&keyword={keyword}"
             
-            # 헤더를 최대한 리얼하게 설정
             headers = {
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -120,43 +121,35 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
             }
             
-            # 타임아웃 15초 설정
             response = await session.get(url, headers=headers, timeout=15)
             
-            # 200 OK가 아니면 에러 처리
             if response.status_code != 200:
                 print(f"❌ 접속 차단됨 (Status: {response.status_code})")
                 return []
 
-            # HTML 파싱
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # 위비티 리스트 구조 (.list li)
             items = soup.select('.list li')
+            
+            print(f"[CRAWL] HTML에서 발견한 항목: {len(items)}개")
             
             count = 0
             for item in items:
-                # 상단 공지 등 필터링 (최대 12개만)
                 if count >= 12: break
                 
                 try:
                     title_elem = item.select_one('.tit a')
                     if not title_elem: continue
                     
-                    # 제목 가져오기
                     title = title_elem.get_text(strip=True)
                     if not title: continue
                     
-                    # 링크 가져오기
                     link = title_elem.get('href', '')
                     if link and not link.startswith('http'):
                         link = "https://www.wevity.com" + link
                     
-                    # 주관사
                     org_elem = item.select_one('.organ')
                     org = org_elem.get_text(strip=True) if org_elem else "정보없음"
                     
-                    # 마감일
                     day_elem = item.select_one('.day')
                     deadline = day_elem.get_text(strip=True) if day_elem else "진행중"
 
@@ -170,12 +163,15 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
                     count += 1
                     
                 except Exception as e:
+                    print(f"[CRAWL] 항목 파싱 오류: {e}")
                     continue
             
             print(f"✅ curl_cffi 성공: {len(results)}건 가져옴")
             
     except Exception as e:
-        print(f"❌ curl_cffi 에러: {str(e)}")
+        print(f"❌ curl_cffi 오류: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
     
     return results
 
@@ -189,15 +185,31 @@ async def gyeonggi_scholarship_finder(city: str = "전체", grade: str = "전체
         cached = _cache.get(cache_key)
         if cached: return cached + "\n\n💾 [캐시 데이터]"
 
-        # 1. 위비티에서 '장학금' 검색 (실시간 공고)
+        # 1. 위비티에서 '장학금' 검색
         search_query = f"{city} 장학금" if city != "전체" else "장학금"
-        scholarships = await crawl_wevity_async(search_query)
+        raw_results = await crawl_wevity_async(search_query)
+        
+        # 🔥 필터링: 제목에 '장학금' 또는 '장학'이 포함된 것만
+        scholarships = []
+        for item in raw_results:
+            title = item.get('title', '').lower()
+            # 장학금 관련 키워드 체크
+            if any(keyword in title for keyword in ['장학금', '장학', 'scholarship']):
+                scholarships.append(item)
+            # 공모전/대회 제외
+            elif any(keyword in title for keyword in ['공모전', '대회', '콘테스트', '서포터즈', '챌린지']):
+                continue
+            else:
+                # 주관사가 장학재단이면 포함
+                org = item.get('org', '').lower()
+                if '장학' in org or '재단' in org:
+                    scholarships.append(item)
         
         # 2. 결과 조합
         result = f"""🎓 장학금 검색 결과 ({len(scholarships)}건)
 
 📍 지역: {city} | 대상: {grade}
-✅ 출처: 위비티 실시간 크롤링
+✅ 출처: 위비티 실시간 크롤링 (필터링 적용)
 
 """     
         # 지역 장학재단 정보 (고정 데이터)
@@ -223,6 +235,7 @@ async def gyeonggi_scholarship_finder(city: str = "전체", grade: str = "전체
         return result
     except Exception as e:
         return f"⚠️ 오류: {e}"
+
 
 # =========================
 # 2️⃣ 대외활동 찾기 (위비티)
@@ -392,7 +405,7 @@ async def gyeonggi_event_finder(city: str = "전체", category: str = "전체") 
 # 창업지원금 (샘플 데이터 제거)
 # =========================
 async def startup_support_finder(age: int = 25, region: str = "경기도") -> str:
-    """창업진흥원 K-Startup API - 샘플 제거"""
+    """창업진흥원 K-Startup API - 디버깅 강화"""
     try:
         cache_key = f"startup_{age}_{region}"
         cached_data = _cache.get(cache_key)
@@ -412,65 +425,110 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
         try:
             resp = requests.get(api_url, params=params, timeout=15)
             
+            # 🔥 디버깅: 응답 상태 확인
+            print(f"[DEBUG] Status Code: {resp.status_code}")
+            print(f"[DEBUG] Response Length: {len(resp.content)}")
+            
             if resp.status_code == 200:
                 try:
+                    # 🔥 원본 XML 확인 (처음 500자)
+                    print(f"[DEBUG] XML Preview: {resp.text[:500]}")
+                    
                     root = ET.fromstring(resp.content)
                     
                     # 결과 코드 확인
                     result_code = root.find('.//resultCode')
                     result_msg = root.find('.//resultMsg')
                     
-                    if result_code is not None and result_code.text == '00':
-                        items = root.findall('.//item')
+                    print(f"[DEBUG] Result Code: {result_code.text if result_code is not None else 'None'}")
+                    print(f"[DEBUG] Result Msg: {result_msg.text if result_msg is not None else 'None'}")
+                    
+                    # 🔥 수정: resultCode가 없어도 item을 찾아봄
+                    items = root.findall('.//item')
+                    print(f"[DEBUG] Found Items: {len(items)}")
+                    
+                    if len(items) == 0:
+                        # item이 없으면 구조 확인
+                        print(f"[DEBUG] Root Tag: {root.tag}")
+                        for child in root:
+                            print(f"[DEBUG] Child: {child.tag}")
+                    
+                    # 🔥 조건 완화: resultCode 체크 제거
+                    for item in items:
+                        title_elem = item.find('pbancNm')
+                        org_elem = item.find('insttNm')
+                        target_elem = item.find('sprtTrgtNm')
+                        detail_elem = item.find('pbancUrl')
                         
-                        for item in items:
-                            title_elem = item.find('pbancNm')
-                            org_elem = item.find('insttNm')
-                            target_elem = item.find('sprtTrgtNm')
-                            detail_elem = item.find('pbancUrl')
+                        if title_elem is not None and title_elem.text:
+                            support = {
+                                'title': title_elem.text,
+                                'org': org_elem.text if org_elem is not None and org_elem.text else 'K-Startup',
+                                'target': target_elem.text if target_elem is not None and target_elem.text else '창업자',
+                                'amount': '홈페이지 확인',
+                                'apply': 'K-Startup',
+                                'url': detail_elem.text if detail_elem is not None and detail_elem.text else 'https://www.k-startup.go.kr',
+                                'source': 'API'
+                            }
                             
-                            if title_elem is not None and title_elem.text:
-                                support = {
-                                    'title': title_elem.text,
-                                    'org': org_elem.text if org_elem is not None and org_elem.text else 'K-Startup',
-                                    'target': target_elem.text if target_elem is not None and target_elem.text else '창업자',
-                                    'amount': '홈페이지 확인',
-                                    'apply': 'K-Startup',
-                                    'url': detail_elem.text if detail_elem is not None and detail_elem.text else 'https://www.k-startup.go.kr',
-                                    'source': 'API'
-                                }
-                                
-                                # 나이 필터링
-                                if age < 40:
-                                    if '청년' in support['target'] or '39세' in support['target'] or '40세' in support['target']:
-                                        supports.append(support)
-                                    elif '전체' in support['target'] or '제한없음' in support['target']:
-                                        supports.append(support)
-                                else:
+                            # 나이 필터링
+                            if age < 40:
+                                if '청년' in support['target'] or '39세' in support['target'] or '40세' in support['target']:
                                     supports.append(support)
-                    else:
+                                elif '전체' in support['target'] or '제한없음' in support['target']:
+                                    supports.append(support)
+                            else:
+                                supports.append(support)
+                    
+                    # 🔥 resultCode 에러여도 데이터 있으면 계속 진행
+                    if result_code is not None and result_code.text != '00' and len(supports) == 0:
                         error_msg = result_msg.text if result_msg is not None else "알 수 없는 오류"
                         return f"""💰 창업지원금 검색 실패
 
-❌ API 에러: {result_code.text if result_code is not None else 'UNKNOWN'} - {error_msg}
+❌ API 에러: {result_code.text} - {error_msg}
+
+🔍 디버그 정보:
+• API 호출 성공: {resp.status_code}
+• XML 길이: {len(resp.content)} bytes
+• Items 발견: {len(items)}개
 
 💡 해결책:
 • K-Startup 직접 방문: https://www.k-startup.go.kr
-• 경기테크노파크: https://www.gtp.or.kr"""
+• 경기테크노파크: https://www.gtp.or.kr
+• API 키 확인 필요"""
                         
                 except ET.ParseError as pe:
-                    return f"⚠️ XML 파싱 오류: {str(pe)}\n\n📍 K-Startup: https://www.k-startup.go.kr"
+                    return f"""⚠️ XML 파싱 오류: {str(pe)}
+
+🔍 응답 미리보기:
+{resp.text[:300]}...
+
+💡 해결책:
+• K-Startup: https://www.k-startup.go.kr
+• API 키 재발급 필요할 수 있음"""
+                    
+            else:
+                return f"⚠️ HTTP 오류: {resp.status_code}\n\n🔗 K-Startup: https://www.k-startup.go.kr"
+                
         except Exception as e:
-            return f"⚠️ API 호출 오류: {str(e)}\n\n📍 K-Startup: https://www.k-startup.go.kr"
+            import traceback
+            return f"""⚠️ API 호출 오류: {str(e)}
+
+🔍 상세 오류:
+{traceback.format_exc()[:500]}
+
+💡 해결책:
+• K-Startup: https://www.k-startup.go.kr
+• 경기테크노파크: https://www.gtp.or.kr"""
         
         if not supports:
             return f"""💰 창업지원금 검색 결과 (0건)
 
 조건: 나이={age}세, 지역={region}
 
-═══════════════════════════
+╔═══════════════════════════╗
 ⚠️ 검색 결과가 없습니다
-═══════════════════════════
+╚═══════════════════════════╝
 
 💡 직접 확인:
 • K-Startup: https://www.k-startup.go.kr
@@ -483,9 +541,9 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
 🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 ✅ K-Startup API
 
-═══════════════════════════
+╔═══════════════════════════╗
 💵 지원 프로그램
-═══════════════════════════
+╚═══════════════════════════╝
 
 """
         
@@ -499,9 +557,9 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
 
 """
         
-        result += """═══════════════════════════
+        result += """╔═══════════════════════════╗
 🔗 추천 링크
-═══════════════════════════
+╚═══════════════════════════╝
 • K-Startup: https://www.k-startup.go.kr
 • 경기테크노파크: https://www.gtp.or.kr
 • 경기도청년정책: https://www.gg.go.kr/youth"""
@@ -510,7 +568,9 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
         return result[:24000]
         
     except Exception as e:
-        return f"⚠️ 오류: {str(e)}"
+        import traceback
+        return f"⚠️ 오류: {str(e)}\n\n{traceback.format_exc()[:300]}"
+
 
 # =========================
 # 4. 코딩대회 찾기 (전국)
