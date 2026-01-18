@@ -495,9 +495,9 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
 🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 ✅ 실제 API 데이터
 
-═══════════════════════════
+╔═════════════════════════════╗
 🔥 마감임박 공모전
-═══════════════════════════
+╚═════════════════════════════╝
 
 """
         
@@ -510,9 +510,9 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
 
 """
         
-        result += f"""═══════════════════════════
+        result += f"""╔═════════════════════════════╗
 🔗 추천 사이트
-═══════════════════════════
+╚═════════════════════════════╝
 • 경기도청: https://www.gg.go.kr
 • 경기콘텐츠진흥원: https://www.gcon.or.kr
 • 경기문화재단: https://www.ggcf.kr
