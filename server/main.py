@@ -182,6 +182,51 @@ async def crawl_wevity(keyword: str) -> List[Dict]:
 
     return results
 # =========================
+# 1️⃣ 장학금 찾기 (재단정보 + 위비티)
+# =========================
+async def gyeonggi_scholarship_finder(city: str = "전체", grade: str = "전체") -> str:
+    """지역 장학재단 정보 + 위비티 실시간 장학금 검색"""
+    try:
+        cache_key = f"scholar_{city}_{grade}"
+        cached = _cache.get(cache_key)
+        if cached: return cached + "\n\n💾 [캐시 데이터]"
+
+        # 1. 위비티에서 '장학금' 검색 (실시간 공고)
+        search_query = f"{city} 장학금" if city != "전체" else "장학금"
+        scholarships = await crawl_wevity(search_query)
+        
+        # 2. 결과 조합
+        result = f"""🎓 장학금 검색 결과 ({len(scholarships)}건)
+
+📍 지역: {city} | 대상: {grade}
+✅ 출처: 위비티 실시간 크롤링
+
+"""     
+        # 지역 장학재단 정보 (고정 데이터)
+        if city in GYEONGGI_CITIES:
+            info = GYEONGGI_CITIES[city]
+            result += f"""[추천] 🏛️ {info['foundation']}
+🔗 바로가기: {info['url']}
+📌 {city} 학생이라면 꼭 확인하세요!
+
+"""
+
+        if not scholarships:
+            result += "⚠️ 현재 모집 중인 실시간 공고가 없습니다.\n위 지역 재단 홈페이지를 직접 방문해보세요."
+        else:
+            for i, s in enumerate(scholarships, 1):
+                result += f"""{i}. 💰 {s['title']}
+   주관: {s['org']} | 마감: {s['deadline']}
+   🔗 {s['url']}
+
+"""
+
+        _cache.set(cache_key, result, ttl=3600)
+        return result
+    except Exception as e:
+        return f"⚠️ 오류: {e}"
+
+# =========================
 # 2️⃣ 대외활동 찾기 (위비티)
 # =========================
 async def gyeonggi_activity_finder(category: str = "전체") -> str:
