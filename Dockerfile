@@ -42,5 +42,5 @@ COPY . .
 # 포트 노출
 EXPOSE 8000
 
-# 실행
-CMD ["python", "main.py"]
+# 실행 (여기만 수정!)
+CMD ["python", "server/main.py"]
