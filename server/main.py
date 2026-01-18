@@ -148,24 +148,6 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
     
     return results
 
-# 동기 wrapper
-def crawl_wevity(keyword: str) -> List[Dict]:
-    """동기 함수로 감싸기"""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    try:
-        return loop.run_until_complete(crawl_wevity_async(keyword))
-    except Exception as e:
-        print(f"크롤링 에러: {e}")
-        return []
-
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
 # =========================
@@ -178,7 +160,7 @@ async def gyeonggi_scholarship_finder(city: str = "전체", grade: str = "전체
 
         # 1. 위비티에서 '장학금' 검색 (실시간 공고)
         search_query = f"{city} 장학금" if city != "전체" else "장학금"
-        scholarships = crawl_wevity(search_query)
+        scholarships = await crawl_wevity(search_query)
         
         # 2. 결과 조합
         result = f"""🎓 장학금 검색 결과 ({len(scholarships)}건)
@@ -223,7 +205,7 @@ async def gyeonggi_activity_finder(category: str = "전체") -> str:
 
         # 검색어 설정
         keyword = category if category != "전체" else "대외활동"
-        activities = crawl_wevity(keyword)
+        activities = await crawl_wevity(keyword)
         
         result = f"""🏃 대외활동/공모전 검색 ({len(activities)}건)
 
