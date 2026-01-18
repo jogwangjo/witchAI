@@ -160,7 +160,7 @@ async def gyeonggi_scholarship_finder(city: str = "전체", grade: str = "전체
 
         # 1. 위비티에서 '장학금' 검색 (실시간 공고)
         search_query = f"{city} 장학금" if city != "전체" else "장학금"
-        scholarships = await crawl_wevity(search_query)
+        scholarships = await crawl_wevity_async(search_query)
         
         # 2. 결과 조합
         result = f"""🎓 장학금 검색 결과 ({len(scholarships)}건)
@@ -205,7 +205,7 @@ async def gyeonggi_activity_finder(category: str = "전체") -> str:
 
         # 검색어 설정
         keyword = category if category != "전체" else "대외활동"
-        activities = await crawl_wevity(keyword)
+        activities = await crawl_wevity_async(keyword)
         
         result = f"""🏃 대외활동/공모전 검색 ({len(activities)}건)
 
