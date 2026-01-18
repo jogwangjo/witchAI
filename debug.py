@@ -1,51 +1,59 @@
 import requests
-import json
+from bs4 import BeautifulSoup
 
-# 사용자님의 키
-GYEONGGI_API_KEY = "16a785f639b14bab8f19ecafc2e537e4"
-
-def test_gyeonggi_api():
-    print("🚀 경기도 장학금 API 테스트 시작...")
+def check_site(name, url, selector):
+    print(f"\n🔍 [{name}] 접속 테스트 중...")
     
-    # 1. URL 확인 (오타 확인용)
-    url = "https://openapi.gg.go.kr/GGNEWSSTUS"
-    
-    params = {
-        "KEY": GYEONGGI_API_KEY,
-        "Type": "json",
-        "pIndex": 1,
-        "pSize": 5
+    # 봇 탐지 회피를 위한 강력한 헤더
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://www.google.com/'
     }
     
     try:
-        # 2. 실제 요청
-        resp = requests.get(url, params=params, timeout=10)
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            print(f"❌ 접속 실패 (상태코드: {resp.status_code})")
+            return False
+            
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        items = soup.select(selector)
         
-        print(f"📡 응답 코드: {resp.status_code}")
+        print(f"📡 응답 길이: {len(resp.text)} bytes")
+        print(f"📊 찾은 항목 수: {len(items)}개")
         
-        # 3. 응답 내용 날것으로 출력
-        print("\n[응답 본문]")
-        print(resp.text[:500])  # 앞부분 500자만 출력
-        
-        # 4. JSON 파싱 시도
-        data = resp.json()
-        
-        # 5. 에러 코드 확인
-        if 'RESULT' in data:
-            code = data['RESULT']['CODE']
-            msg = data['RESULT']['MESSAGE']
-            print(f"\n❌ API 에러 발생: {code} - {msg}")
-        elif 'Schlshipbeneft' in data:
-            head = data['Schlshipbeneft'][0]['head'][1]
-            code = head['RESULT']['CODE']
-            msg = head['RESULT']['MESSAGE']
-            print(f"\n✅ API 호출 성공: {code} - {msg}")
-            print(f"데이터 개수: {len(data['Schlshipbeneft'][1]['row'])}")
+        if len(items) > 0:
+            print("✅ 크롤링 성공!")
+            # 첫 번째 항목 제목만 출력해서 확인
+            first_item = items[0].get_text().strip()[:50]
+            print(f"   👉 첫 번째 데이터: {first_item}...")
+            return True
         else:
-            print("\n❓ 알 수 없는 응답 구조")
-
+            print("⚠️ 접속은 됐으나 데이터 못 찾음 (선택자 불일치 또는 동적 로딩)")
+            # 디버깅용 타이틀 출력
+            print(f"   👉 페이지 제목: {soup.title.string if soup.title else '제목 없음'}")
+            return False
+            
     except Exception as e:
-        print(f"\n💥 파이썬 코드 에러: {str(e)}")
+        print(f"❌ 에러 발생: {e}")
+        return False
 
 if __name__ == "__main__":
-    test_gyeonggi_api()
+    print("=== 🕵️ 크롤링 생존 확인 테스트 ===")
+    
+    # 1. 네이버 뉴스 (선택자: a.news_tit)
+    check_site("네이버 뉴스", 
+               "https://search.naver.com/search.naver?where=news&query=%EA%B2%BD%EA%B8%B0%EB%8F%84+%EC%9E%A5%ED%95%99%EA%B8%88", 
+               "a.news_tit")
+    
+    # 2. 위비티 (선택자: .list li .tit a) -> 정적 사이트라 성공 확률 높음
+    check_site("위비티", 
+               "https://www.wevity.com/?c=find&s=1&gub=1&cidx=21", 
+               ".tit a")
+               
+    # 3. 링커리어 (선택자: .activity-title) -> 동적 사이트라 실패 확률 높음
+    check_site("링커리어", 
+               "https://linkareer.com/list/hottest", 
+               "h3.MuiTypography-root") # 링커리어의 복잡한 클래스명

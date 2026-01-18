@@ -96,329 +96,129 @@ CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주�
 
 
 # =========================
-# 🆕 크롤링 1: 장학금 (경기도교육청)
+# 🕷️ 통합 크롤러 (위비티)
 # =========================
-async def crawl_goe_scholarships() -> List[Dict]:
-    """경기도교육청 장학금 공지 크롤링"""
-    scholarships = []
-    
+async def crawl_wevity(keyword: str) -> List[Dict]:
+    """위비티 통합 검색 크롤러 (장학금/공모전/대외활동 모두 처리)"""
+    results = []
     try:
-        url = "https://www.goe.go.kr/home/bbs/bbsList.do?ptIdx=9&mId=0301010000"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        # 위비티 통합 검색 URL
+        url = f"https://www.wevity.com/?c=find&s=1&keyword={keyword}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
         
         resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code != 200:
-            return scholarships
-        
         soup = BeautifulSoup(resp.text, 'html.parser')
-        items = soup.select('.board_list tbody tr')[:30]
         
-        for item in items:
-            try:
-                title_elem = item.select_one('.subject a') or item.select_one('td.title a')
-                if not title_elem:
-                    continue
-                
-                title = title_elem.get_text(strip=True)
-                
-                # 장학금 키워드 필터
-                keywords = ['장학', '학자금', '지원', '선발', '학비', '등록금', '재단']
-                if not any(k in title for k in keywords):
-                    continue
-                
-                link = title_elem.get('href', '')
-                if link and not link.startswith('http'):
-                    link = 'https://www.goe.go.kr' + link
-                
-                date_elem = item.select_one('.date') or item.select_one('td.date')
-                posted = date_elem.get_text(strip=True) if date_elem else ''
-                
-                scholarships.append({
-                    'title': title,
-                    'org': '경기도교육청',
-                    'posted': posted,
-                    'url': link,
-                    'source': '웹크롤링'
-                })
-            except:
-                continue
-                
-    except Exception as e:
-        print(f"경기도교육청 크롤링 오류: {e}")
-    
-    return scholarships
-
-
-# =========================
-# 🆕 크롤링 2: 대외활동 (위비티)
-# =========================
-async def crawl_wevity_contests(category: str = "전체") -> List[Dict]:
-    """위비티 대외활동/공모전 크롤링"""
-    contests = []
-    
-    try:
-        url = "https://www.wevity.com/?c=find&s=1&gub=1"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code != 200:
-            return contests
-        
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        items = soup.select('.list_style_1 li')[:25]
+        # 검색 결과 아이템들 (테스트 완료된 선택자)
+        items = soup.select('.list li')[:15]
         
         for item in items:
             try:
                 title_elem = item.select_one('.tit a')
-                if not title_elem:
-                    continue
+                if not title_elem: continue
                 
                 title = title_elem.get_text(strip=True)
-                link = title_elem.get('href', '')
-                if link and not link.startswith('http'):
-                    link = 'https://www.wevity.com' + link
+                link = "https://www.wevity.com" + title_elem['href']
                 
                 org_elem = item.select_one('.org')
-                org = org_elem.get_text(strip=True) if org_elem else '위비티'
+                org = org_elem.get_text(strip=True) if org_elem else "위비티"
                 
-                dday_elem = item.select_one('.dday')
-                deadline = dday_elem.get_text(strip=True) if dday_elem else '상시'
-                
-                # 카테고리 필터
-                if category != "전체" and category not in title:
-                    continue
-                
-                contests.append({
+                # 마감일 (D-Day)
+                dday_elem = item.select_one('.day') or item.select_one('.dday')
+                dday = dday_elem.get_text(strip=True) if dday_elem else "진행중"
+
+                results.append({
                     'title': title,
                     'org': org,
-                    'deadline': deadline,
+                    'deadline': dday,
                     'url': link,
-                    'platform': '위비티',
-                    'source': '웹크롤링'
+                    'source': 'Wevity'
                 })
             except:
                 continue
                 
     except Exception as e:
-        print(f"위비티 크롤링 오류: {e}")
-    
-    return contests
-
+        print(f"위비티 크롤링 실패: {e}")
+        
+    return results
 
 # =========================
-# 🆕 크롤링 3: 대외활동 (링커리어)
+# 1️⃣ 장학금 찾기 (재단정보 + 위비티)
 # =========================
-async def crawl_linkareer_activities() -> List[Dict]:
-    """링커리어 대외활동 크롤링"""
-    activities = []
-    
+async def gyeonggi_scholarship_finder(city: str = "전체", grade: str = "전체") -> str:
+    """지역 장학재단 정보 + 위비티 실시간 장학금 검색"""
     try:
-        url = "https://linkareer.com/list/hottest"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code != 200:
-            return activities
-        
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        items = soup.select('.activity-item')[:20]
-        
-        for item in items:
-            try:
-                title_elem = item.select_one('.title a') or item.select_one('h3 a')
-                if not title_elem:
-                    continue
-                
-                title = title_elem.get_text(strip=True)
-                link = title_elem.get('href', '')
-                if link and not link.startswith('http'):
-                    link = 'https://linkareer.com' + link
-                
-                org_elem = item.select_one('.company')
-                org = org_elem.get_text(strip=True) if org_elem else '링커리어'
-                
-                dday_elem = item.select_one('.d-day')
-                deadline = dday_elem.get_text(strip=True) if dday_elem else '확인필요'
-                
-                activities.append({
-                    'title': title,
-                    'org': org,
-                    'deadline': deadline,
-                    'url': link,
-                    'platform': '링커리어',
-                    'source': '웹크롤링'
-                })
-            except:
-                continue
-                
-    except Exception as e:
-        print(f"링커리어 크롤링 오류: {e}")
-    
-    return activities
+        cache_key = f"scholar_{city}_{grade}"
+        cached = _cache.get(cache_key)
+        if cached: return cached + "\n\n💾 [캐시 데이터]"
 
+        # 1. 위비티에서 '장학금' 검색 (실시간 공고)
+        search_query = f"{city} 장학금" if city != "전체" else "장학금"
+        scholarships = await crawl_wevity(search_query)
+        
+        # 2. 결과 조합
+        result = f"""🎓 장학금 검색 결과 ({len(scholarships)}건)
 
-# =========================
-# 1️⃣ 장학금 찾기 (크롤링)
-# =========================
-async def gyeonggi_scholarship_finder(
-    city: str = "전체",
-    grade: str = "전체", 
-    school_type: str = "전체"
-) -> str:
-    """경기도 장학금 검색 - 웹 크롤링"""
-    try:
-        cache_key = f"scholarship_{city}_{grade}_{school_type}"
-        cached_data = _cache.get(cache_key)
-        if cached_data:
-            return cached_data + "\n\n💾 [캐시 데이터 - 1시간 이내]"
-        
-        # 경기도교육청 크롤링
-        scholarships = await crawl_goe_scholarships()
-        
-        # 시/군 장학재단 정보 추가
+📍 지역: {city} | 대상: {grade}
+✅ 출처: 위비티 실시간 크롤링
+
+"""     
+        # 지역 장학재단 정보 (고정 데이터)
         if city in GYEONGGI_CITIES:
             info = GYEONGGI_CITIES[city]
-            scholarships.insert(0, {
-                'title': f'{info["foundation"]} 장학금 (상시모집)',
-                'org': info["foundation"],
-                'url': info["url"],
-                'posted': '상시',
-                'source': '장학재단',
-                'highlight': True
-            })
-        
+            result += f"""[추천] 🏛️ {info['foundation']}
+🔗 바로가기: {info['url']}
+📌 {city} 학생이라면 꼭 확인하세요!
+
+"""
+
         if not scholarships:
-            return f"""🎓 경기도 장학금 검색 결과 (0건)
-
-조건: 지역={city}, 학년={grade}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ 현재 모집 중인 장학금이 없습니다
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💡 추천 사이트:
-• 경기도교육청: https://www.goe.go.kr
-• 한국장학재단: https://www.kosaf.go.kr
-{f"• {GYEONGGI_CITIES[city]['foundation']}: {GYEONGGI_CITIES[city]['url']}" if city in GYEONGGI_CITIES else ""}"""
-        
-        result = f"""🎓 경기도 장학금 검색 결과 ({len(scholarships)}건)
-
-📍 지역: {city} | 학년: {grade}
-🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-✅ 실시간 웹 크롤링 데이터
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 신청 가능한 장학금
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            result += "⚠️ 현재 모집 중인 실시간 공고가 없습니다.\n위 지역 재단 홈페이지를 직접 방문해보세요."
+        else:
+            for i, s in enumerate(scholarships, 1):
+                result += f"""{i}. 💰 {s['title']}
+   주관: {s['org']} | 마감: {s['deadline']}
+   🔗 {s['url']}
 
 """
-        
-        for i, s in enumerate(scholarships[:20], 1):
-            emoji = "⭐" if s.get('highlight') else "💎"
-            result += f"""{i}. {emoji} {s['title']}
-🏢 주관: {s['org']}
-📅 게시일: {s.get('posted', '확인필요')}
-🔗 {s['url']}
 
-"""
-        
-        if city in GYEONGGI_CITIES:
-            info = GYEONGGI_CITIES[city]
-            result += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 {city} 장학재단 안내
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• 재단명: {info['foundation']}
-• 홈페이지: {info['url']}
-• 대상: {city} 거주/재학 학생
-• 신청: 홈페이지에서 공고 확인
-
-"""
-        
-        result += """━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔗 관련 링크
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• 경기도교육청: https://www.goe.go.kr
-• 한국장학재단: https://www.kosaf.go.kr
-• 경기도청년포털: https://www.ggoom.or.kr
-
-⚠️ 신청 자격 및 마감일은 반드시 링크에서 확인하세요!"""
-        
         _cache.set(cache_key, result, ttl=3600)
-        return result[:24000]
-        
+        return result
     except Exception as e:
-        return f"⚠️ 오류: {str(e)}"
-
+        return f"⚠️ 오류: {e}"
 
 # =========================
-# 2️⃣ 대외활동 찾기 (크롤링)
+# 2️⃣ 대외활동 찾기 (위비티)
 # =========================
-async def gyeonggi_activity_finder(category: str = "전체", target: str = "전체") -> str:
-    """대외활동/공모전 검색 - 웹 크롤링"""
+async def gyeonggi_activity_finder(category: str = "전체") -> str:
+    """대외활동/공모전 검색 (위비티)"""
     try:
-        cache_key = f"activity_{category}_{target}"
-        cached_data = _cache.get(cache_key)
-        if cached_data:
-            return cached_data + "\n\n💾 [캐시 데이터 - 2시간 이내]"
+        cache_key = f"activity_{category}"
+        cached = _cache.get(cache_key)
+        if cached: return cached + "\n\n💾 [캐시 데이터]"
+
+        # 검색어 설정
+        keyword = category if category != "전체" else "대외활동"
+        activities = await crawl_wevity(keyword)
         
-        # 위비티 + 링커리어 크롤링
-        activities = []
-        wevity = await crawl_wevity_contests(category)
-        linkareer = await crawl_linkareer_activities()
-        
-        activities.extend(wevity)
-        activities.extend(linkareer)
-        
-        if not activities:
-            return f"""🎯 대외활동 검색 결과 (0건)
+        result = f"""🏃 대외활동/공모전 검색 ({len(activities)}건)
 
-조건: 카테고리={category}, 대상={target}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ 현재 진행 중인 대외활동이 없습니다
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💡 추천 사이트:
-• 위비티: https://www.wevity.com
-• 링커리어: https://linkareer.com
-• 씽굿: https://www.thinkgood.or.kr"""
-        
-        result = f"""🎯 대외활동/공모전 검색 결과 ({len(activities)}건)
-
-📂 카테고리: {category} | 대상: {target}
-🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-✅ 실시간 웹 크롤링 데이터
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔥 진행 중인 대외활동
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 검색어: {keyword}
+✅ 출처: 위비티 (Wevity)
 
 """
-        
-        for i, a in enumerate(activities[:25], 1):
-            result += f"""{i}. 🎯 {a['title']}
-🏢 주관: {a['org']}
-⏰ 마감: {a.get('deadline', '확인필요')}
-🌐 플랫폼: {a['platform']}
-🔗 {a['url']}
+        for i, a in enumerate(activities, 1):
+            result += f"""{i}. 📢 {a['title']}
+   주관: {a['org']} | {a['deadline']}
+   🔗 {a['url']}
 
 """
-        
-        result += """━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔗 추천 대외활동 사이트
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• 위비티: https://www.wevity.com (공모전 종합)
-• 링커리어: https://linkareer.com (대외활동/인턴)
-• 씽굿: https://www.thinkgood.or.kr (대학생 공모전)
-• 온스테이지: https://www.onstage.com (마케팅/기획)
-
-⚠️ 상세 정보 및 신청은 각 링크에서 확인하세요!"""
-        
-        _cache.set(cache_key, result, ttl=7200)
-        return result[:24000]
-        
+        _cache.set(cache_key, result, ttl=3600)
+        return result
     except Exception as e:
-        return f"⚠️ 오류: {str(e)}"
+        return f"⚠️ 오류: {e}"
 
 
 # =========================
@@ -960,11 +760,6 @@ TOOLS_REGISTRY = {
                 "grade": {
                     "type": "string",
                     "description": "학년 (초등학생/중학생/고등학생/대학생/전체)",
-                    "default": "전체"
-                },
-                "school_type": {
-                    "type": "string",
-                    "description": "학교 유형 (공립/사립/전체)",
                     "default": "전체"
                 }
             },
