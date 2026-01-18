@@ -95,78 +95,71 @@ CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주�
     "안성시", "포천시", "의왕시", "하남시", "여주시", "동두천시", "과천시", "가평군", "양평군", "연천군"]
 
 
-# =========================
-# 🕷️ 통합 크롤러 (위비티) - 이중 안전장치 적용
-# =========================
-# crawl_wevity 함수 전체 교체 (67번째 줄 근처)
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import random
+import time
+
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+]
 
 def crawl_wevity(keyword: str) -> List[Dict]:
-    """Selenium 크롤링 (403 우회)"""
+    """위비티 requests 크롤링"""
     results = []
     
+    headers = {
+        'User-Agent': random.choice(USER_AGENTS),
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+        'Referer': 'https://www.google.com/',
+        'Connection': 'keep-alive',
+    }
+    
+    search_keyword = keyword.replace("경기도", "경기").strip()
+    time.sleep(random.uniform(0.3, 0.8))  # 봇 방지
+    
     try:
-        options = Options()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+        url = "https://www.wevity.com/"
+        params = {"c": "find", "s": "1", "gp": "1", "keyword": search_keyword}
         
-        driver = webdriver.Chrome(options=options)
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        print(f"🔍 [{keyword}] 상태: {resp.status_code}, 길이: {len(resp.text)}")
         
-        search_keyword = keyword.replace("경기도", "경기").strip()
-        url = f"https://www.wevity.com/?c=find&s=1&gbn=0&gp=1&keyword={search_keyword}"
+        if resp.status_code != 200:
+            print(f"❌ 크롤링 실패: {resp.status_code}")
+            return []
         
-        print(f"🔍 Selenium 크롤링 시작: {search_keyword}")
-        driver.get(url)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        items = soup.select('ul.list li')[1:]  # 헤더 제외
         
-        # 페이지 로딩 대기
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "ul.list"))
-        )
-        
-        items = driver.find_elements(By.CSS_SELECTOR, 'ul.list li')[1:]  # 헤더 제외
         print(f"📦 찾은 항목: {len(items)}개")
         
         for item in items[:15]:
             try:
-                title_elem = item.find_element(By.CSS_SELECTOR, '.tit a')
-                title = title_elem.text.strip()
-                link = title_elem.get_attribute('href')
+                title_elem = item.select_one('.tit a')
+                if not title_elem: continue
                 
-                org = item.find_element(By.CSS_SELECTOR, '.organ').text.strip()
-                deadline = item.find_element(By.CSS_SELECTOR, '.day').text.strip()
+                title = title_elem.get_text(strip=True)
+                link = title_elem.get('href', '')
+                if not link.startswith('http'):
+                    link = "https://www.wevity.com" + link
                 
                 results.append({
                     'title': title,
-                    'org': org if org else '위비티',
-                    'deadline': deadline if deadline else '진행중',
+                    'org': item.select_one('.organ').get_text(strip=True) if item.select_one('.organ') else "위비티",
+                    'deadline': item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중",
                     'url': link,
-                    'source': 'Wevity(Selenium)'
+                    'source': 'Wevity'
                 })
-                print(f"  ✅ {title[:30]}")
-            except:
+            except: 
                 continue
         
-        driver.quit()
+        print(f"✅ 파싱 성공: {len(results)}건")
         
     except Exception as e:
-        print(f"❌ Selenium 에러: {e}")
-        if 'driver' in locals():
-            driver.quit()
+        print(f"❌ 에러: {e}")
     
-    # 2차 시도 (결과 0건일 때)
-    if not results:
-        core_keyword = "장학금" if "장학" in keyword else "대외활동" if "대외" in keyword else "공모전"
-        print(f"⚠️ 2차 시도: {core_keyword}")
-        # 재귀 호출 방지를 위해 생략
-    
-    print(f"🎯 최종 결과: {len(results)}건")
     return results
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
