@@ -309,6 +309,7 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
             return cached_data + "\n\n💾 [캐시 데이터 - 2시간 이내]"
         
         contests = []
+        debug_info = []  # 디버깅 정보 수집
         
         # 경기도 소식 API 호출
         api_url = "https://openapi.gg.go.kr/GGNEWSSTUS"
@@ -319,18 +320,32 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
             "pSize": 1000
         }
         
+        # 디버깅 정보
+        debug_info.append(f"🔑 API KEY: {GYEONGGI_API_KEY[:10]}..." if len(GYEONGGI_API_KEY) > 10 else f"🔑 API KEY: {GYEONGGI_API_KEY}")
+        debug_info.append(f"🌐 URL: {api_url}")
+        
         api_success = False
+        api_error = None
+        
         try:
             resp = requests.get(api_url, params=params, timeout=15)
+            debug_info.append(f"📡 HTTP Status: {resp.status_code}")
             
             if resp.status_code == 200:
                 data = resp.json()
+                debug_info.append(f"📦 Response Keys: {list(data.keys())}")
                 
                 if 'GGNEWSSTUS' in data and len(data['GGNEWSSTUS']) > 1:
                     result_info = data['GGNEWSSTUS'][0]
+                    result_code = result_info.get('RESULT', {}).get('CODE')
+                    result_msg = result_info.get('RESULT', {}).get('MESSAGE')
                     
-                    if result_info.get('RESULT', {}).get('CODE') == 'INFO-000':
+                    debug_info.append(f"📋 Result Code: {result_code}")
+                    debug_info.append(f"📋 Result Message: {result_msg}")
+                    
+                    if result_code == 'INFO-000':
                         items = data['GGNEWSSTUS'][1].get('row', [])
+                        debug_info.append(f"✅ Total Items: {len(items)}")
                         
                         for item in items:
                             title = item.get('TITLE', '')
@@ -373,9 +388,31 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
                                     'source': 'OpenAPI (실제 데이터)'
                                 })
                         
+                        debug_info.append(f"🎯 Filtered Items: {len(contests)}")
                         api_success = True
+                    else:
+                        # API 에러 응답
+                        api_error = f"API Error: {result_code} - {result_msg}"
+                        debug_info.append(f"❌ {api_error}")
+                else:
+                    api_error = "Invalid API response structure"
+                    debug_info.append(f"❌ {api_error}")
+            else:
+                api_error = f"HTTP Error: {resp.status_code}"
+                debug_info.append(f"❌ {api_error}")
+                
+        except requests.exceptions.Timeout:
+            api_error = "API Timeout (15초 초과)"
+            debug_info.append(f"❌ {api_error}")
+        except requests.exceptions.RequestException as e:
+            api_error = f"Request Error: {str(e)}"
+            debug_info.append(f"❌ {api_error}")
         except Exception as e:
-            print(f"API 호출 오류: {str(e)}")
+            api_error = f"Unknown Error: {str(e)}"
+            debug_info.append(f"❌ {api_error}")
+        
+        # 디버깅 정보 문자열
+        debug_section = "\n".join(debug_info)
         
         # API 실패 시 샘플 데이터
         if not api_success or len(contests) == 0:
@@ -419,11 +456,16 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
 
 조건: 지역={city}, 카테고리={category}
 
-════════════════════════════
+═══════════════════════════
 ⚠️ 해당 조건의 공모전이 없습니다
-════════════════════════════
+═══════════════════════════
 
-💡 팁: 카테고리를 "전체"로 변경해보세요"""
+💡 팁: 카테고리를 "전체"로 변경해보세요
+
+═══════════════════════════
+🔧 API 디버깅 정보
+═══════════════════════════
+{debug_section}"""
         
         # 마감일 정렬
         def get_deadline_days(c):
@@ -444,9 +486,14 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
 📊 데이터 출처: 경기도 공공데이터
 {"⚠️ 주의: 샘플 데이터입니다. 실제 데이터는 API 키가 필요합니다." if not api_success else "✅ 실제 API 데이터"}
 
-════════════════════════════
+═══════════════════════════
+🔧 API 디버깅 정보
+═══════════════════════════
+{debug_section}
+
+═══════════════════════════
 🔥 마감임박 공모전
-════════════════════════════
+═══════════════════════════
 
 """
         
@@ -460,9 +507,9 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
 
 """
         
-        result += f"""════════════════════════════
+        result += f"""═══════════════════════════
 🔗 추천 사이트
-════════════════════════════
+═══════════════════════════
 • 경기도청: https://www.gg.go.kr
 • 경기콘텐츠진흥원: https://www.gcon.or.kr
 • 경기문화재단: https://www.ggcf.kr
@@ -474,7 +521,6 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
         
     except Exception as e:
         return f"⚠️ 오류: {str(e)}\n💡 예시: gyeonggi_contest_finder('수원시', 'IT')"
-
 
 # =========================
 # 3. 창업지원금 찾기
