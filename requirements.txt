@@ -1,8 +1,4 @@
-fastmcp  # mcp → fastmcp
-yfinance
-numpy
-pandas
-scipy
+fastmcp
 uvicorn
 starlette
 python-dotenv
