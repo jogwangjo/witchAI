@@ -96,134 +96,91 @@ CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주�
 
 
 # =========================
-# 🕷️ 통합 크롤러 (위비티) - 수정됨
+# 🕷️ 통합 크롤러 (위비티) - 이중 안전장치 적용
 # =========================
 async def crawl_wevity(keyword: str) -> List[Dict]:
-    """위비티 통합 검색 크롤러 (인코딩 수정 + 안전장치 추가)"""
+    """위비티 통합 검색 (1차: 정밀 검색 -> 0건일 시 2차: 광역 검색)"""
     results = []
     
-    # 1. 검색어 다듬기 (수원시 -> 수원)
-    # '시/군/구' 같은 행정구역 명칭을 빼야 검색이 더 잘 됩니다.
-    search_keyword = keyword.replace("시 ", " ").replace("군 ", " ").strip()
+    # 1. 헤더 설정 (봇 차단 회피)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     
+    # 2. 검색어 전처리 (경기도 장학금 -> 경기 장학금)
+    # 위비티는 '경기도'보다 '경기'로 검색할 때 결과가 더 잘 나옵니다.
+    search_keyword = keyword.replace("경기도", "경기").strip()
+
+    # --- [1차 시도] 원래 검색어로 조회 ---
     try:
-        # URL과 파라미터 분리 (한글 인코딩 자동 처리)
-        base_url = "https://www.wevity.com/"
-        params = {
-            "c": "find",
-            "s": "1",
-            "keyword": search_keyword
-        }
+        url = "https://www.wevity.com/"
+        params = {"c": "find", "s": "1", "keyword": search_keyword}
         
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-        
-        resp = requests.get(base_url, params=params, headers=headers, timeout=10)
+        resp = requests.get(url, params=params, headers=headers, timeout=5)
         soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # 검색 결과 파싱
+        # 리스트 파싱
         items = soup.select('.list li')
-        
-        for item in items[:15]:  # 상위 15개만
+        for item in items[:15]:
             try:
                 title_elem = item.select_one('.tit a')
                 if not title_elem: continue
                 
                 title = title_elem.get_text(strip=True)
                 link = "https://www.wevity.com" + title_elem['href']
-                
-                org_elem = item.select_one('.org')
-                org = org_elem.get_text(strip=True) if org_elem else "위비티"
-                
-                dday_elem = item.select_one('.day') or item.select_one('.dday')
-                dday = dday_elem.get_text(strip=True) if dday_elem else "진행중"
+                org = item.select_one('.org').get_text(strip=True) if item.select_one('.org') else "위비티"
+                dday = item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중"
 
                 results.append({
                     'title': title,
                     'org': org,
                     'deadline': dday,
                     'url': link,
-                    'source': 'Wevity'
+                    'source': 'Wevity(검색)'
                 })
-            except:
-                continue
-                
-        # 2. [안전장치] 만약 검색 결과가 0건이면? -> '장학금' 전체 카테고리에서 긁어오기
-        if not results and "장학" in keyword:
-            print(f"⚠️ '{search_keyword}' 검색 결과 없음. 장학금 전체 목록을 가져옵니다.")
-            # 위비티 장학금 카테고리 URL (cidx=24: 대학생/일반인)
-            fallback_params = {"c": "find", "s": "1", "gub": "1", "cidx": "24"} 
-            resp = requests.get(base_url, params=fallback_params, headers=headers, timeout=10)
+            except: continue
+
+    except Exception as e:
+        print(f"1차 크롤링 에러: {e}")
+
+    # --- [2차 시도] 결과가 0건이면? -> 지역명 떼고 '핵심 키워드'로만 재검색 ---
+    if not results:
+        core_keyword = ""
+        if "장학" in keyword: core_keyword = "장학금"
+        elif "공모" in keyword: core_keyword = "공모전"
+        elif "대외" in keyword or "활동" in keyword: core_keyword = "대외활동"
+        else: core_keyword = "대학생" # 기본값
+
+        print(f"⚠️ '{search_keyword}' 결과 0건. '{core_keyword}'(전국/전체)로 재검색합니다.")
+        
+        try:
+            params['keyword'] = core_keyword
+            resp = requests.get(url, params=params, headers=headers, timeout=5)
             soup = BeautifulSoup(resp.text, 'html.parser')
             items = soup.select('.list li')
             
-            for item in items[:10]: # 10개만
+            for item in items[:10]: # 2차 검색은 10개만
                 try:
                     title_elem = item.select_one('.tit a')
                     if not title_elem: continue
-                    title = title_elem.get_text(strip=True)
-                    # 전체 목록에서라도 '수원'이 들어간 게 있는지 확인 (없으면 다 보여줌)
-                    # if "수원" in keyword and "수원" not in title: continue (너무 엄격해서 주석처리)
                     
+                    title = title_elem.get_text(strip=True)
+                    
+                    # 제목에 '지역 제한'이 명시된 다른 지역(예: 서울, 부산)은 제외하는 필터링 (선택사항)
+                    # if "서울" in title or "부산" in title or "경북" in title: continue 
+
                     results.append({
                         'title': title,
                         'org': item.select_one('.org').get_text(strip=True),
                         'deadline': item.select_one('.day').get_text(strip=True),
                         'url': "https://www.wevity.com" + title_elem['href'],
-                        'source': 'Wevity(전체)'
+                        'source': f'Wevity({core_keyword})' # 출처에 범용 검색임을 표시
                     })
                 except: continue
+        except Exception as e:
+            print(f"2차 크롤링 에러: {e}")
 
-    except Exception as e:
-        print(f"위비티 크롤링 실패: {e}")
-        
     return results
-# =========================
-# 1️⃣ 장학금 찾기 (재단정보 + 위비티)
-# =========================
-async def gyeonggi_scholarship_finder(city: str = "전체", grade: str = "전체") -> str:
-    """지역 장학재단 정보 + 위비티 실시간 장학금 검색"""
-    try:
-        cache_key = f"scholar_{city}_{grade}"
-        cached = _cache.get(cache_key)
-        if cached: return cached + "\n\n💾 [캐시 데이터]"
-
-        # 1. 위비티에서 '장학금' 검색 (실시간 공고)
-        search_query = f"{city} 장학금" if city != "전체" else "장학금"
-        scholarships = await crawl_wevity(search_query)
-        
-        # 2. 결과 조합
-        result = f"""🎓 장학금 검색 결과 ({len(scholarships)}건)
-
-📍 지역: {city} | 대상: {grade}
-✅ 출처: 위비티 실시간 크롤링
-
-"""     
-        # 지역 장학재단 정보 (고정 데이터)
-        if city in GYEONGGI_CITIES:
-            info = GYEONGGI_CITIES[city]
-            result += f"""[추천] 🏛️ {info['foundation']}
-🔗 바로가기: {info['url']}
-📌 {city} 학생이라면 꼭 확인하세요!
-
-"""
-
-        if not scholarships:
-            result += "⚠️ 현재 모집 중인 실시간 공고가 없습니다.\n위 지역 재단 홈페이지를 직접 방문해보세요."
-        else:
-            for i, s in enumerate(scholarships, 1):
-                result += f"""{i}. 💰 {s['title']}
-   주관: {s['org']} | 마감: {s['deadline']}
-   🔗 {s['url']}
-
-"""
-
-        _cache.set(cache_key, result, ttl=3600)
-        return result
-    except Exception as e:
-        return f"⚠️ 오류: {e}"
-
 # =========================
 # 2️⃣ 대외활동 찾기 (위비티)
 # =========================
