@@ -280,7 +280,7 @@ async def gyeonggi_scholarship_finder(
 # 2. 경기도 공모전/소식 찾기
 # =========================
 async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체") -> str:
-    """경기도 소식 현황 API 활용 - 샘플 데이터 없음"""
+    """경기도 소식 현황 API 활용"""
     try:
         cache_key = f"contest_{city}_{category}"
         cached_data = _cache.get(cache_key)
@@ -298,7 +298,6 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
             "pSize": 1000
         }
         
-        # API 직접 호출 (에러 시 바로 리턴)
         try:
             resp = requests.get(api_url, params=params, timeout=15)
             
@@ -307,23 +306,102 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
             
             data = resp.json()
             
-            if 'GGNEWSSTUS' not in data or len(data['GGNEWSSTUS']) < 2:
-                return f"❌ API 응답 구조 오류\n📦 Response: {list(data.keys())}"
+            # 디버깅: 전체 응답 구조 확인
+            if 'GGNEWSSTUS' not in data:
+                return f"❌ API 응답에 GGNEWSSTUS 없음\n📦 Response keys: {list(data.keys())}\n📄 Raw response (첫 1000자): {str(data)[:1000]}"
             
-            result_info = data['GGNEWSSTUS'][0]
-            result_code = result_info.get('RESULT', {}).get('CODE')
-            result_msg = result_info.get('RESULT', {}).get('MESSAGE')
+            ggnews = data['GGNEWSSTUS']
             
-            if result_code != 'INFO-000':
-                return f"❌ API 에러: {result_code} - {result_msg}\n🔑 사용한 KEY: {GYEONGGI_API_KEY[:10]}..."
+            # 리스트가 아닌 경우
+            if not isinstance(ggnews, list):
+                return f"❌ GGNEWSSTUS가 리스트가 아님\n📦 Type: {type(ggnews)}\n📄 Content: {str(ggnews)[:1000]}"
             
-            items = data['GGNEWSSTUS'][1].get('row', [])
+            # 최소 1개 요소는 있어야 함
+            if len(ggnews) < 1:
+                return f"❌ GGNEWSSTUS 배열이 비어있음\n📄 Content: {str(ggnews)}"
+            
+            # 첫 번째 요소에서 결과 코드 찾기 (여러 패턴 시도)
+            first_elem = ggnews[0]
+            
+            # 패턴 1: head 형태 (일반적)
+            if isinstance(first_elem, dict):
+                # RESULT 객체가 있는 경우
+                if 'RESULT' in first_elem and isinstance(first_elem['RESULT'], dict):
+                    result_code = first_elem['RESULT'].get('CODE', 'UNKNOWN')
+                    result_msg = first_elem['RESULT'].get('MESSAGE', 'No message')
+                # 직접 CODE/MESSAGE가 있는 경우
+                elif 'CODE' in first_elem:
+                    result_code = first_elem.get('CODE', 'UNKNOWN')
+                    result_msg = first_elem.get('MESSAGE', 'No message')
+                # head 객체 안에 있는 경우
+                elif 'head' in first_elem and isinstance(first_elem['head'], list) and len(first_elem['head']) > 0:
+                    head_info = first_elem['head'][0]
+                    result_code = head_info.get('CODE', 'UNKNOWN')
+                    result_msg = head_info.get('MESSAGE', 'No message')
+                else:
+                    # 구조를 모르겠으면 전체 출력
+                    return f"❌ 알 수 없는 응답 구조\n📦 First element keys: {list(first_elem.keys())}\n📄 Content: {str(first_elem)[:1000]}"
+                
+                # 에러 코드 확인
+                if result_code not in ['INFO-000', '000']:
+                    error_messages = {
+                        '300': '필수 값 누락',
+                        '290': '인증키가 유효하지 않음 - API 키를 다시 확인하세요!',
+                        '336': '최대 1,000건 초과',
+                        '333': '요청위치 값 타입 오류',
+                        '310': '서비스를 찾을 수 없음',
+                        '337': '일별 트래픽 제한 초과',
+                        '500': '서버 오류',
+                        '600': '데이터베이스 연결 오류',
+                        '601': 'SQL 문장 오류',
+                        'INFO-300': '관리자에 의해 인증키 사용 제한',
+                        'INFO-200': '해당 데이터 없음'
+                    }
+                    error_detail = error_messages.get(result_code, result_msg)
+                    return f"""❌ API 에러: {result_code} - {error_detail}
+
+🔑 사용한 KEY: {GYEONGGI_API_KEY[:10]}...
+🌐 URL: {api_url}
+
+💡 해결 방법:
+1. API 키가 올바른지 확인 (https://data.gg.go.kr)
+2. 'sample key'가 아닌 실제 발급받은 키 사용
+3. 인증키 활성화 상태 확인
+4. 일일 사용량 제한 확인"""
+            
+            # 데이터 추출 시도 (여러 패턴)
+            items = []
+            
+            # 패턴 1: GGNEWSSTUS[1].row (일반적)
+            if len(ggnews) >= 2 and isinstance(ggnews[1], dict):
+                items = ggnews[1].get('row', [])
+            # 패턴 2: GGNEWSSTUS[0].row (첫 번째에 바로)
+            elif len(ggnews) >= 1 and isinstance(ggnews[0], dict) and 'row' in ggnews[0]:
+                items = ggnews[0].get('row', [])
+            # 패턴 3: body 안에
+            elif len(ggnews) >= 2 and isinstance(ggnews[1], dict) and 'body' in ggnews[1]:
+                body = ggnews[1]['body']
+                if isinstance(body, list) and len(body) > 0:
+                    items = body[0].get('row', [])
             
             if not items:
-                return f"⚠️ API에서 데이터를 받았지만 항목이 0개입니다.\n📊 Total: {len(items)}개"
+                return f"""⚠️ 데이터 없음
+
+📊 API 응답:
+✅ API 호출 성공
+✅ 결과 코드: {result_code}
+❌ 데이터 항목 0개
+
+🔍 GGNEWSSTUS 구조:
+{chr(10).join([f"[{i}] {type(elem).__name__} - keys: {list(elem.keys()) if isinstance(elem, dict) else 'N/A'}" for i, elem in enumerate(ggnews[:3])])}
+
+💡 이 API에 현재 공개된 소식이 없을 수 있습니다."""
             
             # 공모전 필터링
             for item in items:
+                if not isinstance(item, dict):
+                    continue
+                
                 title = item.get('TITLE', '')
                 cat_nm = item.get('CATEGORY_NM', '')
                 
@@ -343,14 +421,16 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
                     # 마감일 계산
                     deadline = "미정"
                     try:
-                        if end_de and len(end_de) >= 8:
-                            end_date = datetime.strptime(end_de[:8], '%Y%m%d')
-                            days_left = (end_date - datetime.now()).days
-                            if days_left >= 0:
-                                deadline = f"D-{days_left}"
-                            else:
-                                continue  # 마감된 것 제외
-                    except:
+                        if end_de:
+                            end_str = str(end_de).replace('-', '').replace('/', '').strip()
+                            if len(end_str) >= 8:
+                                end_date = datetime.strptime(end_str[:8], '%Y%m%d')
+                                days_left = (end_date - datetime.now()).days
+                                if days_left >= 0:
+                                    deadline = f"D-{days_left}"
+                                else:
+                                    continue  # 마감된 것 제외
+                    except Exception:
                         pass
                     
                     contests.append({
@@ -375,17 +455,19 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
 💡 해결책:
 - 카테고리를 "전체"로 시도
 - 키워드가 너무 엄격할 수 있음
-- API 데이터에 실제 공모전이 없을 수도 있음
+- API 데이터에 현재 공모전이 없을 수도 있음
 
 🔍 받은 소식 샘플 (처음 3개):
-{chr(10).join([f"- {items[i].get('TITLE', '')} ({items[i].get('CATEGORY_NM', '')})" for i in range(min(3, len(items)))])}"""
+{chr(10).join([f"- {items[i].get('TITLE', '제목없음')} ({items[i].get('CATEGORY_NM', '분류없음')})" for i in range(min(3, len(items)))])}"""
             
         except requests.exceptions.Timeout:
             return "❌ API 타임아웃 (15초 초과)"
         except requests.exceptions.RequestException as e:
             return f"❌ API 요청 오류: {str(e)}"
+        except json.JSONDecodeError as e:
+            return f"❌ JSON 파싱 오류: {str(e)}\n📄 Response: {resp.text[:500]}"
         except Exception as e:
-            return f"❌ 처리 오류: {str(e)}"
+            return f"❌ 처리 오류: {type(e).__name__} - {str(e)}"
         
         # 마감일 정렬
         def get_deadline_days(c):
@@ -393,7 +475,7 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
             if 'D-' in dl:
                 try:
                     return int(dl.split('-')[1])
-                except:
+                except Exception:
                     return 999
             return 999
         
@@ -433,7 +515,7 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
         return result[:24000]
         
     except Exception as e:
-        return f"⚠️ 전체 오류: {str(e)}\n💡 예시: gyeonggi_contest_finder('수원시', 'IT')"
+        return f"⚠️ 전체 오류: {type(e).__name__} - {str(e)}\n💡 예시: gyeonggi_contest_finder('수원시', 'IT')"
 
 # =========================
 # 3. 창업지원금 찾기 (전국 데이터)
