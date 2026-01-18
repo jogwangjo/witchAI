@@ -153,11 +153,19 @@ def crawl_wevity(keyword: str) -> List[Dict]:
     """동기 함수로 감싸기"""
     try:
         loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    return loop.run_until_complete(crawl_wevity_async(keyword))
     
+    try:
+        return loop.run_until_complete(crawl_wevity_async(keyword))
+    except Exception as e:
+        print(f"크롤링 에러: {e}")
+        return []
+
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
 # =========================
