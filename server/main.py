@@ -110,22 +110,32 @@ def crawl_wevity(keyword: str) -> List[Dict]:
     }
     
     search_keyword = keyword.replace("경기도", "경기").strip()
+    print(f"🔍 검색어: '{search_keyword}'")  # 디버깅
     
     try:
         url = "https://www.wevity.com/"
         params = {"c": "find", "s": "1", "gbn": "0", "gp": "1", "keyword": search_keyword}
         
         resp = requests.get(url, params=params, headers=headers, timeout=8)
+        print(f"✅ 응답 코드: {resp.status_code}, 길이: {len(resp.text)}")  # 디버깅
+        
         soup = BeautifulSoup(resp.text, 'html.parser')
+        all_items = soup.select('ul.list li')
+        print(f"📊 전체 li 개수: {len(all_items)}")  # 디버깅
         
-        items = soup.select('ul.list li')[1:]  # 🔥 첫 번째(헤더) 제외
+        items = all_items[1:] if len(all_items) > 1 else []
+        print(f"📦 처리할 아이템: {len(items)}개")  # 디버깅
         
-        for item in items[:15]:
+        for idx, item in enumerate(items[:15]):
             try:
                 title_elem = item.select_one('.tit a')
-                if not title_elem: continue
+                if not title_elem:
+                    print(f"  ⚠️ {idx}: .tit a 없음")  # 디버깅
+                    continue
                 
                 title = title_elem.get_text(strip=True)
+                print(f"  ✅ {idx}: {title[:30]}")  # 디버깅
+                
                 link = title_elem.get('href', '')
                 if not link.startswith('http'):
                     link = "https://www.wevity.com" + link
@@ -140,41 +150,14 @@ def crawl_wevity(keyword: str) -> List[Dict]:
                     'url': link,
                     'source': 'Wevity'
                 })
-            except: 
+            except Exception as e:
+                print(f"  ❌ {idx}: {e}")  # 디버깅
                 continue
 
     except Exception as e:
-        print(f"1차 크롤링 에러: {e}")
+        print(f"❌ 1차 크롤링 에러: {e}")
     
-    # 2차 시도
-    if not results:
-        core_keyword = "장학금" if "장학" in keyword else "대외활동" if "대외" in keyword else "공모전"
-        
-        try:
-            params['keyword'] = core_keyword
-            resp = requests.get(url, params=params, headers=headers, timeout=8)
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            items = soup.select('ul.list li')[1:][:10]  # 🔥 헤더 제외
-            
-            for item in items:
-                try:
-                    title_elem = item.select_one('.tit a')
-                    if not title_elem: continue
-                    
-                    link = title_elem.get('href', '')
-                    if not link.startswith('http'):
-                        link = "https://www.wevity.com" + link
-                    
-                    results.append({
-                        'title': title_elem.get_text(strip=True),
-                        'org': item.select_one('.organ').get_text(strip=True) if item.select_one('.organ') else "위비티",
-                        'deadline': item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중",
-                        'url': link,
-                        'source': f'Wevity({core_keyword})'
-                    })
-                except: continue
-        except: pass
-    
+    print(f"🎯 최종 결과: {len(results)}건")  # 디버깅
     return results
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
