@@ -971,8 +971,8 @@ TOOLS_REGISTRY = {
             "required": []
         }
     },
-    "gyeonggi_contest_finder": {
-        "func": gyeonggi_contest_finder,
+    "gyeonggi_event_finder": {
+        "func": gyeonggi_event_finder,
         "description": "경기도 공모전/행사 검색. 경기도 소식 API 활용. 공모전, 대회, 문화행사 등 실시간 정보 제공",
         "schema": {
             "type": "object",
