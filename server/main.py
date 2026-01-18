@@ -98,88 +98,89 @@ CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주�
 # =========================
 # 🕷️ 통합 크롤러 (위비티) - 이중 안전장치 적용
 # =========================
+# crawl_wevity 함수 전체 교체 (67번째 줄 근처)
 async def crawl_wevity(keyword: str) -> List[Dict]:
-    """위비티 통합 검색 (1차: 정밀 검색 -> 0건일 시 2차: 광역 검색)"""
+    """위비티 통합 검색"""
     results = []
-    
-    # 1. 헤더 설정 (봇 차단 회피)
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://www.wevity.com/'
     }
     
-    # 2. 검색어 전처리 (경기도 장학금 -> 경기 장학금)
-    # 위비티는 '경기도'보다 '경기'로 검색할 때 결과가 더 잘 나옵니다.
     search_keyword = keyword.replace("경기도", "경기").strip()
-
-    # --- [1차 시도] 원래 검색어로 조회 ---
+    
     try:
+        # 1차 시도
         url = "https://www.wevity.com/"
-        params = {"c": "find", "s": "1", "keyword": search_keyword}
+        params = {"c": "find", "s": "1", "gbn": "0", "gp": "1", "keyword": search_keyword}
         
-        resp = requests.get(url, params=params, headers=headers, timeout=5)
+        resp = requests.get(url, params=params, headers=headers, timeout=8)
+        resp.raise_for_status()
         soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # 리스트 파싱
-        items = soup.select('.list li')
+        # 선택자 개선
+        items = soup.select('ul.list_style li') or soup.select('div.card') or soup.select('.list-item')
+        
         for item in items[:15]:
             try:
-                title_elem = item.select_one('.tit a')
+                # 다양한 선택자 시도
+                title_elem = (item.select_one('.tit a') or 
+                             item.select_one('h3 a') or 
+                             item.select_one('a.title'))
                 if not title_elem: continue
                 
                 title = title_elem.get_text(strip=True)
-                link = "https://www.wevity.com" + title_elem['href']
-                org = item.select_one('.org').get_text(strip=True) if item.select_one('.org') else "위비티"
-                dday = item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중"
-
+                link = title_elem.get('href', '')
+                if not link.startswith('http'):
+                    link = "https://www.wevity.com" + link
+                
+                org = item.select_one('.org, .company, .host')
+                dday = item.select_one('.day, .d-day, .deadline')
+                
                 results.append({
                     'title': title,
-                    'org': org,
-                    'deadline': dday,
+                    'org': org.get_text(strip=True) if org else "위비티",
+                    'deadline': dday.get_text(strip=True) if dday else "진행중",
                     'url': link,
-                    'source': 'Wevity(검색)'
+                    'source': 'Wevity'
                 })
-            except: continue
+            except: 
+                continue
 
     except Exception as e:
-        print(f"1차 크롤링 에러: {e}")
-
-    # --- [2차 시도] 결과가 0건이면? -> 지역명 떼고 '핵심 키워드'로만 재검색 ---
+        print(f"위비티 크롤링 실패: {e}")
+    
+    # 2차 시도 (핵심 키워드)
     if not results:
-        core_keyword = ""
-        if "장학" in keyword: core_keyword = "장학금"
-        elif "공모" in keyword: core_keyword = "공모전"
-        elif "대외" in keyword or "활동" in keyword: core_keyword = "대외활동"
-        else: core_keyword = "대학생" # 기본값
-
-        print(f"⚠️ '{search_keyword}' 결과 0건. '{core_keyword}'(전국/전체)로 재검색합니다.")
+        core_keyword = "장학금" if "장학" in keyword else "대외활동" if "대외" in keyword else "공모전"
         
         try:
             params['keyword'] = core_keyword
-            resp = requests.get(url, params=params, headers=headers, timeout=5)
+            resp = requests.get(url, params=params, headers=headers, timeout=8)
             soup = BeautifulSoup(resp.text, 'html.parser')
-            items = soup.select('.list li')
+            items = soup.select('ul.list_style li, div.card')[:10]
             
-            for item in items[:10]: # 2차 검색은 10개만
+            for item in items:
                 try:
-                    title_elem = item.select_one('.tit a')
+                    title_elem = item.select_one('.tit a, h3 a')
                     if not title_elem: continue
                     
-                    title = title_elem.get_text(strip=True)
+                    link = title_elem.get('href', '')
+                    if not link.startswith('http'):
+                        link = "https://www.wevity.com" + link
                     
-                    # 제목에 '지역 제한'이 명시된 다른 지역(예: 서울, 부산)은 제외하는 필터링 (선택사항)
-                    # if "서울" in title or "부산" in title or "경북" in title: continue 
-
                     results.append({
-                        'title': title,
-                        'org': item.select_one('.org').get_text(strip=True),
-                        'deadline': item.select_one('.day').get_text(strip=True),
-                        'url': "https://www.wevity.com" + title_elem['href'],
-                        'source': f'Wevity({core_keyword})' # 출처에 범용 검색임을 표시
+                        'title': title_elem.get_text(strip=True),
+                        'org': item.select_one('.org, .company').get_text(strip=True) if item.select_one('.org, .company') else "위비티",
+                        'deadline': item.select_one('.day, .d-day').get_text(strip=True) if item.select_one('.day, .d-day') else "진행중",
+                        'url': link,
+                        'source': f'Wevity({core_keyword})'
                     })
                 except: continue
-        except Exception as e:
-            print(f"2차 크롤링 에러: {e}")
-
+        except: pass
+    
     return results
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
