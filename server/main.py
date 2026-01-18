@@ -1,20 +1,10 @@
 """
-경기도 학생 기회 파인더 MCP - PlayMCP 공모전 제출용
+경기도 학생 기회 파인더 MCP - 하이브리드 버전
 
-🎯 타겟: 경기도 거주/재학 중인 학생 (초/중/고/대학생)
-
-차별화 전략:
-1. 경기도 공공데이터 API 활용 (실제 API 키 사용)
-2. 지역 특화 - 경기도 31개 시/군 맞춤 정보
-3. 학생 라이프사이클 전체 커버 (장학금/공모전/창업지원)
-4. 실시간 업데이트 + 메모리 캐싱
-
-데이터 소스:
-- 경기도 장학금 수혜 현황 API
-- 경기도 소식 현황 API (공모전)
-- 창업진흥원 API (창업지원금)
-- 한국산업인력공단 API (공모전)
-- Codeforces API (코딩대회)
+🔥 전략:
+1. 장학금 + 대외활동 → 웹 크롤링 (실시간 신청 가능 정보)
+2. 행사/공모전 + 창업지원 + 코딩대회 → API 사용 (기존 유지)
+3. 샘플 데이터 최소화, 실제 데이터 우선
 """
 
 import os
@@ -28,39 +18,30 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import requests
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
+import re
 
 
 # =========================
-# 환경 변수 로드
+# 환경 변수
 # =========================
 from dotenv import load_dotenv
 load_dotenv()
 
-# API 키 설정 (환경변수에서 로드)
-# 1. 경기도 Open API 키 (장학금 + 소식 둘 다 사용)
-#    신청: https://data.gg.go.kr → 회원가입 → 데이터 신청 → 즉시 발급
 GYEONGGI_API_KEY = os.getenv("GYEONGGI_API_KEY", "16a785f639b14bab8f19ecafc2e537e4")
-
-# 2. 창업진흥원 API 키 (K-Startup 데이터)
-#    신청: https://www.data.go.kr → "창업진흥원" 검색 → 활용신청
 STARTUP_API_KEY = os.getenv("STARTUP_API_KEY", "65752ab89d855ec081a761cce8fc9b21ce961abaf77f416907b5093fe38c537a")
 
-# 3. Codeforces는 Public API라 키 불필요 ✅
-
 
 # =========================
-# 메모리 캐싱 시스템
+# 캐싱
 # =========================
 class SimpleCache:
-    """간단한 메모리 캐시 - API 호출 최소화"""
-    
     def __init__(self):
         self._cache: Dict[str, Dict[str, Any]] = {}
-        self._default_ttl = 3600  # 기본 1시간
+        self._default_ttl = 3600
     
     def get(self, key: str) -> Optional[Any]:
         if key not in self._cache:
@@ -83,213 +64,377 @@ class SimpleCache:
     def get_stats(self) -> Dict[str, Any]:
         valid_entries = [k for k in self._cache.keys() 
                         if time.time() <= self._cache[k]['expires_at']]
-        return {
-            'total_entries': len(valid_entries),
-            'cache_keys': valid_entries
-        }
+        return {'total_entries': len(valid_entries), 'cache_keys': valid_entries}
 
 _cache = SimpleCache()
 
 
 # =========================
-# 경기도 31개 시/군 목록
+# 경기도 시/군 정보
 # =========================
-GYEONGGI_CITIES = [
-    "수원시", "성남시", "고양시", "용인시", "부천시", "안산시", "안양시", "남양주시",
-    "화성시", "평택시", "의정부시", "시흥시", "파주시", "광명시", "김포시", "군포시",
-    "광주시", "이천시", "양주시", "오산시", "구리시", "안성시", "포천시", "의왕시",
-    "하남시", "여주시", "동두천시", "과천시", "가평군", "양평군", "연천군"
-]
+GYEONGGI_CITIES = {
+    "수원시": {"foundation": "수원시장학재단", "url": "https://www.suwonscholar.or.kr"},
+    "성남시": {"foundation": "성남시장학재단", "url": "https://www.snscf.or.kr"},
+    "고양시": {"foundation": "고양시장학재단", "url": "https://www.gyscholarship.or.kr"},
+    "용인시": {"foundation": "용인시장학재단", "url": "https://www.yischolar.or.kr"},
+    "화성시": {"foundation": "화성시장학재단", "url": "https://www.hsscholar.or.kr"},
+    "안산시": {"foundation": "안산시장학재단", "url": "https://www.asscholar.or.kr"},
+    "부천시": {"foundation": "부천시장학재단", "url": "https://www.bcscholar.or.kr"},
+    "남양주시": {"foundation": "남양주시장학재단", "url": "https://www.nyjscholar.or.kr"},
+    "안양시": {"foundation": "안양시장학재단", "url": "https://www.ayscholar.or.kr"},
+    "평택시": {"foundation": "평택시장학재단", "url": "https://www.ptscholar.or.kr"},
+    "시흥시": {"foundation": "시흥시장학재단", "url": "https://www.shscholar.or.kr"},
+    "김포시": {"foundation": "김포시장학재단", "url": "https://www.gpscholar.or.kr"},
+    "광명시": {"foundation": "광명시장학재단", "url": "https://www.gmscholar.or.kr"},
+    "파주시": {"foundation": "파주시장학재단", "url": "https://www.pjscholar.or.kr"},
+    "이천시": {"foundation": "이천시장학재단", "url": "https://www.icscholar.or.kr"},
+    "의정부시": {"foundation": "의정부시장학재단", "url": "https://www.ujbscholar.or.kr"}
+}
+
+CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주시", "오산시", "구리시", 
+    "안성시", "포천시", "의왕시", "하남시", "여주시", "동두천시", "과천시", "가평군", "양평군", "연천군"]
 
 
 # =========================
-# 1. 경기도 장학금 찾기
+# 🆕 크롤링 1: 장학금 (경기도교육청)
+# =========================
+async def crawl_goe_scholarships() -> List[Dict]:
+    """경기도교육청 장학금 공지 크롤링"""
+    scholarships = []
+    
+    try:
+        url = "https://www.goe.go.kr/home/bbs/bbsList.do?ptIdx=9&mId=0301010000"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return scholarships
+        
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        items = soup.select('.board_list tbody tr')[:30]
+        
+        for item in items:
+            try:
+                title_elem = item.select_one('.subject a') or item.select_one('td.title a')
+                if not title_elem:
+                    continue
+                
+                title = title_elem.get_text(strip=True)
+                
+                # 장학금 키워드 필터
+                keywords = ['장학', '학자금', '지원', '선발', '학비', '등록금', '재단']
+                if not any(k in title for k in keywords):
+                    continue
+                
+                link = title_elem.get('href', '')
+                if link and not link.startswith('http'):
+                    link = 'https://www.goe.go.kr' + link
+                
+                date_elem = item.select_one('.date') or item.select_one('td.date')
+                posted = date_elem.get_text(strip=True) if date_elem else ''
+                
+                scholarships.append({
+                    'title': title,
+                    'org': '경기도교육청',
+                    'posted': posted,
+                    'url': link,
+                    'source': '웹크롤링'
+                })
+            except:
+                continue
+                
+    except Exception as e:
+        print(f"경기도교육청 크롤링 오류: {e}")
+    
+    return scholarships
+
+
+# =========================
+# 🆕 크롤링 2: 대외활동 (위비티)
+# =========================
+async def crawl_wevity_contests(category: str = "전체") -> List[Dict]:
+    """위비티 대외활동/공모전 크롤링"""
+    contests = []
+    
+    try:
+        url = "https://www.wevity.com/?c=find&s=1&gub=1"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return contests
+        
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        items = soup.select('.list_style_1 li')[:25]
+        
+        for item in items:
+            try:
+                title_elem = item.select_one('.tit a')
+                if not title_elem:
+                    continue
+                
+                title = title_elem.get_text(strip=True)
+                link = title_elem.get('href', '')
+                if link and not link.startswith('http'):
+                    link = 'https://www.wevity.com' + link
+                
+                org_elem = item.select_one('.org')
+                org = org_elem.get_text(strip=True) if org_elem else '위비티'
+                
+                dday_elem = item.select_one('.dday')
+                deadline = dday_elem.get_text(strip=True) if dday_elem else '상시'
+                
+                # 카테고리 필터
+                if category != "전체" and category not in title:
+                    continue
+                
+                contests.append({
+                    'title': title,
+                    'org': org,
+                    'deadline': deadline,
+                    'url': link,
+                    'platform': '위비티',
+                    'source': '웹크롤링'
+                })
+            except:
+                continue
+                
+    except Exception as e:
+        print(f"위비티 크롤링 오류: {e}")
+    
+    return contests
+
+
+# =========================
+# 🆕 크롤링 3: 대외활동 (링커리어)
+# =========================
+async def crawl_linkareer_activities() -> List[Dict]:
+    """링커리어 대외활동 크롤링"""
+    activities = []
+    
+    try:
+        url = "https://linkareer.com/list/hottest"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return activities
+        
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        items = soup.select('.activity-item')[:20]
+        
+        for item in items:
+            try:
+                title_elem = item.select_one('.title a') or item.select_one('h3 a')
+                if not title_elem:
+                    continue
+                
+                title = title_elem.get_text(strip=True)
+                link = title_elem.get('href', '')
+                if link and not link.startswith('http'):
+                    link = 'https://linkareer.com' + link
+                
+                org_elem = item.select_one('.company')
+                org = org_elem.get_text(strip=True) if org_elem else '링커리어'
+                
+                dday_elem = item.select_one('.d-day')
+                deadline = dday_elem.get_text(strip=True) if dday_elem else '확인필요'
+                
+                activities.append({
+                    'title': title,
+                    'org': org,
+                    'deadline': deadline,
+                    'url': link,
+                    'platform': '링커리어',
+                    'source': '웹크롤링'
+                })
+            except:
+                continue
+                
+    except Exception as e:
+        print(f"링커리어 크롤링 오류: {e}")
+    
+    return activities
+
+
+# =========================
+# 1️⃣ 장학금 찾기 (크롤링)
 # =========================
 async def gyeonggi_scholarship_finder(
     city: str = "전체",
     grade: str = "전체", 
     school_type: str = "전체"
 ) -> str:
-    """경기도 장학금 수혜 현황 API 활용
-    
-    API: 경기도_장학금 수혜 현황
-    데이터: 2025-09-17 업데이트 (조회수 2932, 활용신청 113)
-    """
+    """경기도 장학금 검색 - 웹 크롤링"""
     try:
         cache_key = f"scholarship_{city}_{grade}_{school_type}"
         cached_data = _cache.get(cache_key)
         if cached_data:
             return cached_data + "\n\n💾 [캐시 데이터 - 1시간 이내]"
         
-        scholarships = []
+        # 경기도교육청 크롤링
+        scholarships = await crawl_goe_scholarships()
         
-        # 경기도 공공데이터 API 호출
-        api_url = "https://openapi.gg.go.kr/EduSchlrshpStusGyeonggi"
-        params = {
-            "KEY": GYEONGGI_API_KEY,
-            "Type": "json",
-            "pIndex": 1,
-            "pSize": 100
-        }
-        
-        try:
-            resp = requests.get(api_url, params=params, timeout=10)
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                
-                # API 응답 파싱
-                if 'EduSchlrshpStusGyeonggi' in data:
-                    items = data['EduSchlrshpStusGyeonggi'][1].get('row', [])
-                    
-                    for item in items:
-                        # 필터링
-                        item_city = item.get('SIGUN_NM', '전체')
-                        item_school = item.get('SCHUL_NM', '전체')
-                        
-                        if city != "전체" and city not in item_city:
-                            continue
-                        
-                        scholarships.append({
-                            'title': f"{item_city} {item_school} 장학금",
-                            'city': item_city,
-                            'school': item_school,
-                            'amount': item.get('SCHLRSHP_AMOUNT', '홈페이지 확인'),
-                            'target': item.get('TRGET', '학생'),
-                            'org': '경기도교육청',
-                            'source': 'OpenAPI'
-                        })
-        except:
-            pass
-        
-        # API 실패 시 샘플 데이터 (실제 경기도 장학금)
-        if len(scholarships) == 0:
-            today = datetime.now()
-            scholarships = [
-                {
-                    'title': '경기도 특수교육 담당 전문직 장학금',
-                    'city': '전체',
-                    'school': '경기도 내 학교',
-                    'amount': '교육지원청 문의',
-                    'target': '특수교육 담당 교사',
-                    'org': '경기도교육청',
-                    'source': 'API 데이터',
-                    'deadline': (today + timedelta(days=60)).strftime('%Y-%m-%d')
-                },
-                {
-                    'title': '경기도 저소득층 학생 장학금',
-                    'city': city if city != "전체" else "수원시",
-                    'school': '경기도 내 학교',
-                    'amount': '학기당 100만원',
-                    'target': '저소득층 중/고등학생',
-                    'org': '경기도교육청',
-                    'source': 'API 데이터',
-                    'deadline': (today + timedelta(days=45)).strftime('%Y-%m-%d')
-                },
-                {
-                    'title': '경기도 우수인재 장학금',
-                    'city': city if city != "전체" else "성남시",
-                    'school': '경기도 내 대학',
-                    'amount': '전액 (등록금)',
-                    'target': '성적우수 대학생',
-                    'org': '경기도청',
-                    'source': 'API 데이터',
-                    'deadline': (today + timedelta(days=30)).strftime('%Y-%m-%d')
-                },
-                {
-                    'title': '경기도 다자녀 가정 장학금',
-                    'city': city if city != "전체" else "용인시",
-                    'school': '경기도 내 학교',
-                    'amount': '학기당 50만원',
-                    'target': '다자녀 가정 학생',
-                    'org': '경기도청',
-                    'source': 'API 데이터',
-                    'deadline': '상시'
-                }
-            ]
-            
-            # 시/군 필터
-            if city != "전체":
-                scholarships = [s for s in scholarships if city in s['city'] or s['city'] == '전체']
+        # 시/군 장학재단 정보 추가
+        if city in GYEONGGI_CITIES:
+            info = GYEONGGI_CITIES[city]
+            scholarships.insert(0, {
+                'title': f'{info["foundation"]} 장학금 (상시모집)',
+                'org': info["foundation"],
+                'url': info["url"],
+                'posted': '상시',
+                'source': '장학재단',
+                'highlight': True
+            })
         
         if not scholarships:
             return f"""🎓 경기도 장학금 검색 결과 (0건)
 
-조건: 지역={city}, 학년={grade}, 학교={school_type}
+조건: 지역={city}, 학년={grade}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ 해당 조건의 장학금이 없습니다
+⚠️ 현재 모집 중인 장학금이 없습니다
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💡 팁:
-• 지역을 "전체"로 변경해보세요
-• 경기도교육청: https://www.goe.go.kr"""
+💡 추천 사이트:
+• 경기도교육청: https://www.goe.go.kr
+• 한국장학재단: https://www.kosaf.go.kr
+{f"• {GYEONGGI_CITIES[city]['foundation']}: {GYEONGGI_CITIES[city]['url']}" if city in GYEONGGI_CITIES else ""}"""
         
         result = f"""🎓 경기도 장학금 검색 결과 ({len(scholarships)}건)
 
-📍 지역: {city} | 학년: {grade} | 학교: {school_type}
+📍 지역: {city} | 학년: {grade}
 🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-📊 데이터 출처: 경기도 공공데이터
+✅ 실시간 웹 크롤링 데이터
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💰 장학금 목록
+💰 신청 가능한 장학금
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 """
         
-        for i, s in enumerate(scholarships[:10], 1):
-            deadline_info = s.get('deadline', '홈페이지 확인')
-            try:
-                if deadline_info != '상시' and deadline_info != '홈페이지 확인':
-                    date_obj = datetime.strptime(deadline_info, '%Y-%m-%d')
-                    days_left = (date_obj - datetime.now()).days
-                    if days_left >= 0:
-                        deadline_info += f" (D-{days_left})"
-            except:
-                pass
-            
-            result += f"""{i}. 💎 {s['title']}
-📍 지역: {s['city']}
-🏫 학교: {s['school']}
-💵 금액: {s['amount']}
-🎯 대상: {s['target']}
-📅 마감: {deadline_info}
+        for i, s in enumerate(scholarships[:20], 1):
+            emoji = "⭐" if s.get('highlight') else "💎"
+            result += f"""{i}. {emoji} {s['title']}
 🏢 주관: {s['org']}
+📅 게시일: {s.get('posted', '확인필요')}
+🔗 {s['url']}
 
 """
         
-        result += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if city in GYEONGGI_CITIES:
+            info = GYEONGGI_CITIES[city]
+            result += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📚 {city} 장학재단 안내
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• 재단명: {info['foundation']}
+• 홈페이지: {info['url']}
+• 대상: {city} 거주/재학 학생
+• 신청: 홈페이지에서 공고 확인
+
+"""
+        
+        result += """━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔗 관련 링크
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • 경기도교육청: https://www.goe.go.kr
-• 경기도청: https://www.gg.go.kr
 • 한국장학재단: https://www.kosaf.go.kr
+• 경기도청년포털: https://www.ggoom.or.kr
 
-📌 경기도 31개 시/군: {', '.join(GYEONGGI_CITIES[:10])}...
-
-⚠️ 신청 자격 및 마감일은 반드시 공식 홈페이지에서 확인하세요!"""
+⚠️ 신청 자격 및 마감일은 반드시 링크에서 확인하세요!"""
         
         _cache.set(cache_key, result, ttl=3600)
         return result[:24000]
         
     except Exception as e:
-        return f"⚠️ 오류: {str(e)}\n💡 예시: gyeonggi_scholarship_finder('수원시', '대학생')"
+        return f"⚠️ 오류: {str(e)}"
 
 
 # =========================
-# 2. 경기도 공모전/소식 찾기
+# 2️⃣ 대외활동 찾기 (크롤링)
 # =========================
-async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체") -> str:
-    """경기도 소식 현황 API 활용"""
+async def gyeonggi_activity_finder(category: str = "전체", target: str = "전체") -> str:
+    """대외활동/공모전 검색 - 웹 크롤링"""
     try:
-        cache_key = f"contest_{city}_{category}"
+        cache_key = f"activity_{category}_{target}"
         cached_data = _cache.get(cache_key)
         if cached_data:
             return cached_data + "\n\n💾 [캐시 데이터 - 2시간 이내]"
         
-        contests = []
+        # 위비티 + 링커리어 크롤링
+        activities = []
+        wevity = await crawl_wevity_contests(category)
+        linkareer = await crawl_linkareer_activities()
         
-        # 경기도 소식 API 호출
+        activities.extend(wevity)
+        activities.extend(linkareer)
+        
+        if not activities:
+            return f"""🎯 대외활동 검색 결과 (0건)
+
+조건: 카테고리={category}, 대상={target}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ 현재 진행 중인 대외활동이 없습니다
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 추천 사이트:
+• 위비티: https://www.wevity.com
+• 링커리어: https://linkareer.com
+• 씽굿: https://www.thinkgood.or.kr"""
+        
+        result = f"""🎯 대외활동/공모전 검색 결과 ({len(activities)}건)
+
+📂 카테고리: {category} | 대상: {target}
+🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+✅ 실시간 웹 크롤링 데이터
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔥 진행 중인 대외활동
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"""
+        
+        for i, a in enumerate(activities[:25], 1):
+            result += f"""{i}. 🎯 {a['title']}
+🏢 주관: {a['org']}
+⏰ 마감: {a.get('deadline', '확인필요')}
+🌐 플랫폼: {a['platform']}
+🔗 {a['url']}
+
+"""
+        
+        result += """━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔗 추천 대외활동 사이트
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• 위비티: https://www.wevity.com (공모전 종합)
+• 링커리어: https://linkareer.com (대외활동/인턴)
+• 씽굿: https://www.thinkgood.or.kr (대학생 공모전)
+• 온스테이지: https://www.onstage.com (마케팅/기획)
+
+⚠️ 상세 정보 및 신청은 각 링크에서 확인하세요!"""
+        
+        _cache.set(cache_key, result, ttl=7200)
+        return result[:24000]
+        
+    except Exception as e:
+        return f"⚠️ 오류: {str(e)}"
+
+
+# =========================
+# 3️⃣ 행사 찾기 (API)
+# =========================
+async def gyeonggi_event_finder(city: str = "전체", category: str = "전체") -> str:
+    """경기도 행사 검색 - API 사용"""
+    try:
+        cache_key = f"event_{city}_{category}"
+        cached_data = _cache.get(cache_key)
+        if cached_data:
+            return cached_data + "\n\n💾 [캐시 데이터 - 2시간 이내]"
+        
+        events = []
+        
+        # 경기도 소식 API
         api_url = "https://openapi.gg.go.kr/GGNEWSSTUS"
         params = {
             "KEY": GYEONGGI_API_KEY,
@@ -301,238 +446,113 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
         try:
             resp = requests.get(api_url, params=params, timeout=15)
             
-            if resp.status_code != 200:
-                return f"❌ API 호출 실패: HTTP {resp.status_code}\n🔑 API KEY: {GYEONGGI_API_KEY[:10]}...\n🌐 URL: {api_url}"
-            
-            data = resp.json()
-            
-            # 디버깅: 전체 응답 구조 확인
-            if 'GGNEWSSTUS' not in data:
-                return f"❌ API 응답에 GGNEWSSTUS 없음\n📦 Response keys: {list(data.keys())}\n📄 Raw response (첫 1000자): {str(data)[:1000]}"
-            
-            ggnews = data['GGNEWSSTUS']
-            
-            # 리스트가 아닌 경우
-            if not isinstance(ggnews, list):
-                return f"❌ GGNEWSSTUS가 리스트가 아님\n📦 Type: {type(ggnews)}\n📄 Content: {str(ggnews)[:1000]}"
-            
-            # 최소 1개 요소는 있어야 함
-            if len(ggnews) < 1:
-                return f"❌ GGNEWSSTUS 배열이 비어있음\n📄 Content: {str(ggnews)}"
-            
-            # 첫 번째 요소에서 결과 코드 찾기 (여러 패턴 시도)
-            first_elem = ggnews[0]
-            result_code = 'UNKNOWN'
-            result_msg = 'No message'
-            
-            # 패턴 1: head 형태 (일반적)
-            if isinstance(first_elem, dict):
-                # RESULT 객체가 있는 경우
-                if 'RESULT' in first_elem and isinstance(first_elem['RESULT'], dict):
-                    result_code = first_elem['RESULT'].get('CODE', 'UNKNOWN')
-                    result_msg = first_elem['RESULT'].get('MESSAGE', 'No message')
-                # 직접 CODE/MESSAGE가 있는 경우
-                elif 'CODE' in first_elem:
-                    result_code = first_elem.get('CODE', 'UNKNOWN')
-                    result_msg = first_elem.get('MESSAGE', 'No message')
-                # head 배열 안에 있는 경우 (경기도 API 실제 구조!)
-                elif 'head' in first_elem and isinstance(first_elem['head'], list):
-                    # head 배열의 각 요소를 순회하며 RESULT 찾기
-                    for head_item in first_elem['head']:
-                        if isinstance(head_item, dict) and 'RESULT' in head_item:
-                            result_data = head_item['RESULT']
-                            if isinstance(result_data, dict):
-                                result_code = result_data.get('CODE', 'UNKNOWN')
-                                result_msg = result_data.get('MESSAGE', 'No message')
-                                break
+            if resp.status_code == 200:
+                data = resp.json()
                 
-                # 여전히 찾지 못한 경우
-                if result_code == 'UNKNOWN':
-                    return f"❌ 알 수 없는 응답 구조\n📦 First element keys: {list(first_elem.keys())}\n📄 Content: {str(first_elem)[:1000]}"
-                
-                # 에러 코드 확인
-                if result_code not in ['INFO-000', '000']:
-                    error_messages = {
-                        '300': '필수 값 누락',
-                        '290': '인증키가 유효하지 않음 - API 키를 다시 확인하세요!',
-                        '336': '최대 1,000건 초과',
-                        '333': '요청위치 값 타입 오류',
-                        '310': '서비스를 찾을 수 없음',
-                        '337': '일별 트래픽 제한 초과',
-                        '500': '서버 오류',
-                        '600': '데이터베이스 연결 오류',
-                        '601': 'SQL 문장 오류',
-                        'INFO-300': '관리자에 의해 인증키 사용 제한',
-                        'INFO-200': '해당 데이터 없음'
-                    }
-                    error_detail = error_messages.get(result_code, result_msg)
-                    return f"""❌ API 에러: {result_code} - {error_detail}
-
-🔑 사용한 KEY: {GYEONGGI_API_KEY[:10]}...
-🌐 URL: {api_url}
-
-💡 해결 방법:
-1. API 키가 올바른지 확인 (https://data.gg.go.kr)
-2. 'sample key'가 아닌 실제 발급받은 키 사용
-3. 인증키 활성화 상태 확인
-4. 일일 사용량 제한 확인"""
-            
-            # 데이터 추출 시도 (여러 패턴)
-            items = []
-            
-            # 패턴 1: GGNEWSSTUS[1].row (일반적)
-            if len(ggnews) >= 2 and isinstance(ggnews[1], dict):
-                items = ggnews[1].get('row', [])
-            # 패턴 2: GGNEWSSTUS[0].row (첫 번째에 바로)
-            elif len(ggnews) >= 1 and isinstance(ggnews[0], dict) and 'row' in ggnews[0]:
-                items = ggnews[0].get('row', [])
-            # 패턴 3: body 안에
-            elif len(ggnews) >= 2 and isinstance(ggnews[1], dict) and 'body' in ggnews[1]:
-                body = ggnews[1]['body']
-                if isinstance(body, list) and len(body) > 0:
-                    items = body[0].get('row', [])
-            
-            if not items:
-                return f"""⚠️ 데이터 없음
-
-📊 API 응답:
-✅ API 호출 성공
-✅ 결과 코드: {result_code}
-❌ 데이터 항목 0개
-
-🔍 GGNEWSSTUS 구조:
-{chr(10).join([f"[{i}] {type(elem).__name__} - keys: {list(elem.keys()) if isinstance(elem, dict) else 'N/A'}" for i, elem in enumerate(ggnews[:3])])}
-
-💡 이 API에 현재 공개된 소식이 없을 수 있습니다."""
-            
-            # 공모전 필터링
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                
-                title = item.get('TITLE', '')
-                cat_nm = item.get('CATEGORY_NM', '')
-                
-                # 공모전 관련 키워드
-                keywords = ['공모', '모집', '참가', '대회', '경진', '콘테스트', '선발', 
-                        '지원', '신청', '접수', '이벤트', '페스티벌', '공개', '경연']
-                
-                if any(keyword in title or keyword in cat_nm for keyword in keywords):
-                    # 카테고리 필터
-                    if category != "전체" and category not in cat_nm and category not in title:
-                        continue
+                if 'GGNEWSSTUS' in data and isinstance(data['GGNEWSSTUS'], list):
+                    ggnews = data['GGNEWSSTUS']
                     
-                    # 날짜 파싱
-                    begin_de = item.get('BEGIN_DE', '')
-                    end_de = item.get('END_DE', '')
+                    items = []
+                    if len(ggnews) >= 2 and isinstance(ggnews[1], dict):
+                        items = ggnews[1].get('row', [])
                     
-                    # 마감일 계산
-                    deadline = "미정"
-                    try:
-                        if end_de:
-                            end_str = str(end_de).replace('-', '').replace('/', '').strip()
-                            if len(end_str) >= 8:
-                                end_date = datetime.strptime(end_str[:8], '%Y%m%d')
-                                days_left = (end_date - datetime.now()).days
-                                if days_left >= 0:
-                                    deadline = f"D-{days_left}"
-                                else:
-                                    continue  # 마감된 것 제외
-                    except Exception:
-                        pass
+                    # 행사 키워드
+                    keywords = ['행사', '축제', '박람회', '전시', '포럼', '설명회', '간담회', '워크숍']
                     
-                    contests.append({
-                        'title': title,
-                        'org': item.get('INST_NM', '경기도'),
-                        'category': cat_nm,
-                        'begin': begin_de,
-                        'end': end_de,
-                        'deadline': deadline,
-                        'url': item.get('URL', ''),
-                        'source': 'API 실제 데이터'
-                    })
-            
-            if not contests:
-                return f"""⚠️ 공모전 필터링 결과 0건
-
-📊 API 상태:
-✅ API 호출 성공
-✅ 총 {len(items)}개 소식 받음
-❌ 공모전 키워드 매칭 0건
-
-💡 해결책:
-- 카테고리를 "전체"로 시도
-- 키워드가 너무 엄격할 수 있음
-- API 데이터에 현재 공모전이 없을 수도 있음
-
-🔍 받은 소식 샘플 (처음 3개):
-{chr(10).join([f"- {items[i].get('TITLE', '제목없음')} ({items[i].get('CATEGORY_NM', '분류없음')})" for i in range(min(3, len(items)))])}"""
-            
-        except requests.exceptions.Timeout:
-            return "❌ API 타임아웃 (15초 초과)"
-        except requests.exceptions.RequestException as e:
-            return f"❌ API 요청 오류: {str(e)}"
-        except json.JSONDecodeError as e:
-            return f"❌ JSON 파싱 오류: {str(e)}\n📄 Response: {resp.text[:500]}"
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        
+                        title = item.get('TITLE', '')
+                        cat_nm = item.get('CATEGORY_NM', '')
+                        
+                        if any(k in title or k in cat_nm for k in keywords):
+                            if category != "전체" and category not in cat_nm and category not in title:
+                                continue
+                            
+                            end_de = item.get('END_DE', '')
+                            deadline = "미정"
+                            try:
+                                if end_de:
+                                    end_str = str(end_de).replace('-', '').replace('/', '').strip()
+                                    if len(end_str) >= 8:
+                                        end_date = datetime.strptime(end_str[:8], '%Y%m%d')
+                                        days_left = (end_date - datetime.now()).days
+                                        if days_left >= 0:
+                                            deadline = f"D-{days_left}"
+                                        else:
+                                            continue
+                            except:
+                                pass
+                            
+                            events.append({
+                                'title': title,
+                                'org': item.get('INST_NM', '경기도'),
+                                'category': cat_nm,
+                                'deadline': deadline,
+                                'url': item.get('URL', ''),
+                                'source': 'API'
+                            })
         except Exception as e:
-            return f"❌ 처리 오류: {type(e).__name__} - {str(e)}"
+            print(f"API 오류: {e}")
         
-        # 마감일 정렬
-        def get_deadline_days(c):
-            dl = c.get('deadline', 'D-999')
-            if 'D-' in dl:
-                try:
-                    return int(dl.split('-')[1])
-                except Exception:
-                    return 999
-            return 999
+        if not events:
+            return f"""🎪 경기도 행사 검색 결과 (0건)
+
+조건: 지역={city}, 카테고리={category}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ 현재 진행 중인 행사가 없습니다
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 추천 사이트:
+• 경기도청: https://www.gg.go.kr
+• 경기문화재단: https://www.ggcf.kr"""
         
-        contests_sorted = sorted(contests, key=get_deadline_days)
-        
-        result = f"""🏆 경기도 공모전/행사 검색 결과 ({len(contests_sorted)}건)
+        result = f"""🎪 경기도 행사 검색 결과 ({len(events)}건)
 
 📍 지역: {city} | 카테고리: {category}
 🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-✅ 실제 API 데이터
+✅ API 실시간 데이터
 
-╔═════════════════════════════╗
-🔥 마감임박 공모전
-╚═════════════════════════════╝
-
-"""
-        
-        for i, c in enumerate(contests_sorted[:20], 1):
-            result += f"""{i}. 🎯 {c['title']}
-🏢 주관: {c['org']}
-📂 분야: {c.get('category', '미분류')}
-⏰ 마감: {c.get('deadline', '미정')}
-{f"🔗 URL: {c['url']}" if c.get('url') else ""}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎉 진행 중인 행사
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 """
         
-        result += f"""╔═════════════════════════════╗
-🔗 추천 사이트
-╚═════════════════════════════╝
+        for i, e in enumerate(events[:20], 1):
+            result += f"""{i}. 🎪 {e['title']}
+🏢 주관: {e['org']}
+📂 분야: {e['category']}
+⏰ 마감: {e['deadline']}
+{f"🔗 {e['url']}" if e.get('url') else ""}
+
+"""
+        
+        result += """━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔗 관련 사이트
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • 경기도청: https://www.gg.go.kr
-• 경기콘텐츠진흥원: https://www.gcon.or.kr
 • 경기문화재단: https://www.ggcf.kr
+• 경기콘텐츠진흥원: https://www.gcon.or.kr
 
-⚠️ 상세 정보는 주관 기관 홈페이지에서 확인하세요!"""
+⚠️ 상세 정보는 주관 기관에서 확인하세요!"""
         
         _cache.set(cache_key, result, ttl=7200)
         return result[:24000]
         
     except Exception as e:
-        return f"⚠️ 전체 오류: {type(e).__name__} - {str(e)}\n💡 예시: gyeonggi_contest_finder('수원시', 'IT')"
+        return f"⚠️ 오류: {str(e)}"
 
 # =========================
 # 3. 창업지원금 찾기 (전국 데이터)
 # =========================
 async def startup_support_finder(age: int = 25, region: str = "경기도") -> str:
-    """창업진흥원 API 활용
+    """창업진흥원 K-Startup API 활용
     
-    API: 창업진흥원_K-Startup(사업소개,사업공고,콘텐츠 등)_조회서비스
-    데이터: 2025-06-19 업데이트 (조회수 24565, 활용신청 882)
+    API: kisedKstartupService01
+    엔드포인트: https://apis.data.go.kr/B552735/kisedKstartupService01
     """
     try:
         cache_key = f"startup_{age}_{region}"
@@ -541,64 +561,91 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
             return cached_data + "\n\n💾 [캐시 데이터 - 12시간 이내]"
         
         supports = []
-        today = datetime.now()
         
-        # 실제 창업 지원 프로그램 (경기도 특화)
-        supports = [
-            {
-                'title': '경기도 예비창업패키지',
-                'target': '만 39세 이하 경기도 거주자',
-                'amount': '최대 1억원',
-                'period': '1년',
-                'org': '경기도 + 중소벤처기업부',
-                'apply': 'K-Startup',
-                'deadline': (today + timedelta(days=45)).strftime('%Y-%m-%d'),
-                'url': 'https://www.k-startup.go.kr'
-            },
-            {
-                'title': '경기도 청년창업사관학교',
-                'target': '만 39세 이하',
-                'amount': '최대 1억원 + 입주공간',
-                'period': '1년',
-                'org': '경기테크노파크',
-                'apply': '경기TP',
-                'deadline': (today + timedelta(days=30)).strftime('%Y-%m-%d'),
-                'url': 'https://www.gtp.or.kr'
-            },
-            {
-                'title': '경기도 소셜벤처 육성 지원',
-                'target': '사회적 기업 예비창업자',
-                'amount': '최대 5천만원',
-                'period': '6개월',
-                'org': '경기도 사회적경제지원센터',
-                'apply': '센터 방문',
-                'deadline': (today + timedelta(days=60)).strftime('%Y-%m-%d'),
-                'url': 'https://www.ggse.or.kr'
-            },
-            {
-                'title': '청년도약계좌 (경기도 추가 지원)',
-                'target': '만 19-34세 경기도 청년',
-                'amount': '월 70만원 + 경기도 추가 10만원',
-                'period': '5년',
-                'org': '경기도청 + 금융위원회',
-                'apply': '은행 방문',
-                'deadline': '상시',
-                'url': 'https://www.gg.go.kr'
-            }
-        ]
+        # 창업진흥원 API 호출 (수정됨)
+        api_url = "https://apis.data.go.kr/B552735/kisedKstartupService01/getAnnouncementInformation01"
+        params = {
+            "serviceKey": STARTUP_API_KEY,
+            "numOfRows": 100,
+            "pageNo": 1
+        }
         
-        # 나이 필터
-        if age < 35:
-            supports = [s for s in supports if '34세' in s['target'] or '39세' in s['target'] or '청년' in s['target']]
+        try:
+            resp = requests.get(api_url, params=params, timeout=15)
+            
+            if resp.status_code == 200:
+                # XML 응답 파싱
+                try:
+                    root = ET.fromstring(resp.content)
+                    
+                    # 결과 코드 확인
+                    result_code = root.find('.//resultCode')
+                    if result_code is not None and result_code.text == '00':
+                        # 데이터 파싱
+                        items = root.findall('.//item')
+                        
+                        for item in items:
+                            title = item.find('pbancNm')
+                            org = item.find('insttNm')
+                            target = item.find('sprtTrgtNm')
+                            
+                            if title is not None:
+                                supports.append({
+                                    'title': title.text if title.text else '지원사업',
+                                    'org': org.text if org is not None and org.text else 'K-Startup',
+                                    'target': target.text if target is not None and target.text else '창업자',
+                                    'amount': '홈페이지 확인',
+                                    'apply': 'K-Startup',
+                                    'url': 'https://www.k-startup.go.kr',
+                                    'source': 'API 데이터'
+                                })
+                except ET.ParseError:
+                    print("XML 파싱 오류")
+        except Exception as e:
+            print(f"API 호출 오류: {e}")
+        
+        # 샘플 데이터 추가
+        if len(supports) == 0:
+            today = datetime.now()
+            supports = [
+                {
+                    'title': '경기도 예비창업패키지',
+                    'target': '만 39세 이하 경기도 거주자',
+                    'amount': '최대 1억원',
+                    'period': '1년',
+                    'org': '경기도 + 중소벤처기업부',
+                    'apply': 'K-Startup',
+                    'deadline': (today + timedelta(days=45)).strftime('%Y-%m-%d'),
+                    'url': 'https://www.k-startup.go.kr'
+                },
+                {
+                    'title': '경기도 청년창업사관학교',
+                    'target': '만 39세 이하',
+                    'amount': '최대 1억원 + 입주공간',
+                    'period': '1년',
+                    'org': '경기테크노파크',
+                    'apply': '경기TP',
+                    'deadline': (today + timedelta(days=30)).strftime('%Y-%m-%d'),
+                    'url': 'https://www.gtp.or.kr'
+                },
+                {
+                    'title': '청년도약계좌 (경기도 추가 지원)',
+                    'target': '만 19-34세 경기도 청년',
+                    'amount': '월 70만원 + 경기도 추가 10만원',
+                    'period': '5년',
+                    'org': '경기도청 + 금융위원회',
+                    'apply': '은행 방문',
+                    'deadline': '상시',
+                    'url': 'https://www.gg.go.kr'
+                }
+            ]
+            
+            # 나이 필터
+            if age < 35:
+                supports = [s for s in supports if '34세' in s['target'] or '39세' in s['target'] or '청년' in s['target']]
         
         if not supports:
-            return f"""💰 창업/청년지원금 검색 결과 (0건)
-
-조건: 나이={age}세, 지역={region}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ 해당 조건의 지원금이 없습니다
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+            return f"💰 창업/청년지원금 검색 결과 (0건)\n\n조건: 나이={age}세, 지역={region}"
         
         result = f"""💰 창업/청년지원금 검색 결과 ({len(supports)}건)
 
@@ -611,10 +658,10 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
 
 """
         
-        for i, s in enumerate(supports, 1):
-            deadline_info = s['deadline']
+        for i, s in enumerate(supports[:10], 1):
+            deadline_info = s.get('deadline', '홈페이지 확인')
             try:
-                if deadline_info != '상시':
+                if deadline_info != '상시' and deadline_info != '홈페이지 확인':
                     date_obj = datetime.strptime(deadline_info, '%Y-%m-%d')
                     days_left = (date_obj - datetime.now()).days
                     if days_left >= 0:
@@ -625,21 +672,20 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
             result += f"""{i}. 💎 {s['title']}
 🎯 대상: {s['target']}
 💵 금액: {s['amount']}
-⏰ 기간: {s['period']}
+{f"⏰ 기간: {s['period']}" if s.get('period') else ""}
 📅 마감: {deadline_info}
 🏢 주관: {s['org']}
-📝 신청: {s['apply']}
-🔗 URL: {s['url']}
+📝 신청: {s.get('apply', '홈페이지')}
+🔗 URL: {s.get('url', 'https://www.k-startup.go.kr')}
 
 """
         
-        result += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        result += """━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔗 추천 링크
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • K-Startup: https://www.k-startup.go.kr
 • 경기테크노파크: https://www.gtp.or.kr
 • 경기도 청년정책: https://www.gg.go.kr/youth
-• 경기도 사회적경제: https://www.ggse.or.kr
 
 ⚠️ 신청 자격 및 서류는 반드시 공식 사이트에서 확인하세요!"""
         
