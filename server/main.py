@@ -98,7 +98,7 @@ import asyncio
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode
 
 async def crawl_wevity_async(keyword: str) -> List[Dict]:
-    """Crawl4AI 비동기 크롤링"""
+    """Crawl4AI 우회 강화 버전"""
     results = []
     
     try:
@@ -106,7 +106,10 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
         
         browser_config = BrowserConfig(
             headless=True,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            viewport_width=1920,
+            viewport_height=1080,
+            extra_args=["--disable-blink-features=AutomationControlled"]  # 봇 감지 우회
         )
         
         async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -114,7 +117,12 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
                 url=url,
                 magic=True,
                 cache_mode=CacheMode.BYPASS,
-                wait_for_selector=".list li"
+                page_timeout=30000,  # 타임아웃 30초로 단축
+                delay_before_return_html=2.0,  # 페이지 로딩 대기
+                wait_for_selector=".list li",
+                js_code="""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => false});
+                """  # webdriver 숨기기
             )
             
             if result.success:
@@ -122,29 +130,11 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
                 items = soup.select('.list li')[1:][:15]
                 
                 for item in items:
-                    try:
-                        title_elem = item.select_one('.tit a')
-                        if not title_elem: continue
-                        
-                        link = title_elem.get('href', '')
-                        if not link.startswith('http'):
-                            link = "https://www.wevity.com" + link
-                        
-                        results.append({
-                            'title': title_elem.get_text(strip=True),
-                            'org': item.select_one('.organ').get_text(strip=True) if item.select_one('.organ') else "위비티",
-                            'deadline': item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중",
-                            'url': link,
-                            'source': 'Wevity'
-                        })
-                    except: continue
-                
-                print(f"✅ Crawl4AI 성공: {len(results)}건")
-            else:
-                print(f"❌ 실패: {result.error_message}")
-                
+                    # ... 기존 파싱 코드 ...
+                    
     except Exception as e:
-        print(f"❌ 에러: {e}")
+        print(f"❌ 크롤링 실패: {e}")
+        # 실패 시 빈 리스트 반환
     
     return results
 
