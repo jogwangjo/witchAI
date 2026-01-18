@@ -151,7 +151,12 @@ async def crawl_wevity_async(keyword: str) -> List[Dict]:
 # 동기 wrapper
 def crawl_wevity(keyword: str) -> List[Dict]:
     """동기 함수로 감싸기"""
-    return asyncio.run(crawl_wevity_async(keyword))
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(crawl_wevity_async(keyword))
     
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
