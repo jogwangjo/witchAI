@@ -341,8 +341,13 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
                 return f"❌ API 응답 구조 오류\n📦 Response: {list(data.keys())}"
             
             result_info = data['GGNEWSSTUS'][0]
-            result_code = result_info.get('RESULT', {}).get('CODE')
-            result_msg = result_info.get('RESULT', {}).get('MESSAGE')
+
+            # 이 부분을 이렇게 바꿔:
+            print(f"🔍 result_info: {result_info}", file=sys.stderr)
+            sys.stderr.flush()
+
+            result_code = result_info.get('head', [{}])[0].get('RESULT', {}).get('CODE')
+            result_msg = result_info.get('head', [{}])[0].get('RESULT', {}).get('MESSAGE')
             
             if result_code != 'INFO-000':
                 return f"❌ API 에러: {result_code} - {result_msg}\n🔑 사용한 KEY: {GYEONGGI_API_KEY[:10]}..."
