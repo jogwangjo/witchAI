@@ -99,7 +99,7 @@ CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주�
 # 🕷️ 통합 크롤러 (위비티) - 이중 안전장치 적용
 # =========================
 # crawl_wevity 함수 전체 교체 (67번째 줄 근처)
-async def crawl_wevity(keyword: str) -> List[Dict]:
+def crawl_wevity(keyword: str) -> List[Dict]:
     """위비티 통합 검색"""
     results = []
     headers = {
@@ -188,7 +188,7 @@ async def gyeonggi_scholarship_finder(city: str = "전체", grade: str = "전체
 
         # 1. 위비티에서 '장학금' 검색 (실시간 공고)
         search_query = f"{city} 장학금" if city != "전체" else "장학금"
-        scholarships = await crawl_wevity(search_query)
+        scholarships = crawl_wevity(search_query)
         
         # 2. 결과 조합
         result = f"""🎓 장학금 검색 결과 ({len(scholarships)}건)
@@ -233,7 +233,7 @@ async def gyeonggi_activity_finder(category: str = "전체") -> str:
 
         # 검색어 설정
         keyword = category if category != "전체" else "대외활동"
-        activities = await crawl_wevity(keyword)
+        activities = crawl_wevity(keyword)
         
         result = f"""🏃 대외활동/공모전 검색 ({len(activities)}건)
 
