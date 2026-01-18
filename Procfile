@@ -1,1 +1,1 @@
-web: python server/main.py
+web: playwright install --with-deps chromium && python server/main.py
