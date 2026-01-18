@@ -41,9 +41,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # API 키 설정 (환경변수에서 로드)
-GYEONGGI_API_KEY = os.getenv("GYEONGGI_API_KEY", "sample_key")  # 경기도 Open API
-STARTUP_API_KEY = os.getenv("STARTUP_API_KEY", "sample_key")     # 창업진흥원 API
-HRD_API_KEY = os.getenv("HRD_API_KEY", "sample_key")             # 한국산업인력공단 API
+# 1. 경기도 Open API 키 (장학금 + 소식 둘 다 사용)
+#    신청: https://data.gg.go.kr → 회원가입 → 데이터 신청 → 즉시 발급
+GYEONGGI_API_KEY = os.getenv("GYEONGGI_API_KEY", "sample_key")
+
+# 2. 창업진흥원 API 키 (K-Startup 데이터)
+#    신청: https://www.data.go.kr → "창업진흥원" 검색 → 활용신청
+STARTUP_API_KEY = os.getenv("STARTUP_API_KEY", "sample_key")
+
+# 3. Codeforces는 Public API라 키 불필요 ✅
 
 
 # =========================
@@ -118,7 +124,7 @@ async def gyeonggi_scholarship_finder(
         scholarships = []
         
         # 경기도 공공데이터 API 호출
-        api_url = "https://openapi.gg.go.kr/EduSchlrshpStusGyeonggi"
+        api_url = "https://openapi.gg.go.kr/Schlshipbeneft"
         params = {
             "KEY": GYEONGGI_API_KEY,
             "Type": "json",
@@ -133,8 +139,8 @@ async def gyeonggi_scholarship_finder(
                 data = resp.json()
                 
                 # API 응답 파싱
-                if 'EduSchlrshpStusGyeonggi' in data:
-                    items = data['EduSchlrshpStusGyeonggi'][1].get('row', [])
+                if 'Schlshipbeneft' in data:
+                    items = data['Schlshipbeneft'][1].get('row', [])
                     
                     for item in items:
                         # 필터링
@@ -289,7 +295,7 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
         contests = []
         
         # 경기도 소식 API 호출
-        api_url = "https://openapi.gg.go.kr/GgNewsStus"
+        api_url = "https://openapi.gg.go.kr/GGNEWSSTUS"
         params = {
             "KEY": GYEONGGI_API_KEY,
             "Type": "json",
@@ -303,8 +309,8 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
             if resp.status_code == 200:
                 data = resp.json()
                 
-                if 'GgNewsStus' in data:
-                    items = data['GgNewsStus'][1].get('row', [])
+                if 'GGNEWSSTUS' in data:
+                    items = data['GGNEWSSTUS'][1].get('row', [])
                     
                     for item in items:
                         title = item.get('TTL', '')
@@ -429,11 +435,7 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
 # 3. 창업지원금 찾기 (전국 데이터)
 # =========================
 async def startup_support_finder(age: int = 25, region: str = "경기도") -> str:
-    """창업진흥원 API 활용
-    
-    API: 창업진흥원_K-Startup(사업소개,사업공고,콘텐츠 등)_조회서비스
-    데이터: 2025-06-19 업데이트 (조회수 24565, 활용신청 882)
-    """
+    """창업진흥원 API 활용"""
     try:
         cache_key = f"startup_{age}_{region}"
         cached_data = _cache.get(cache_key)
@@ -443,49 +445,90 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
         supports = []
         today = datetime.now()
         
-        # 실제 창업 지원 프로그램 (경기도 특화)
-        supports = [
-            {
-                'title': '경기도 예비창업패키지',
-                'target': '만 39세 이하 경기도 거주자',
-                'amount': '최대 1억원',
-                'period': '1년',
-                'org': '경기도 + 중소벤처기업부',
-                'apply': 'K-Startup',
-                'deadline': (today + timedelta(days=45)).strftime('%Y-%m-%d'),
-                'url': 'https://www.k-startup.go.kr'
-            },
-            {
-                'title': '경기도 청년창업사관학교',
-                'target': '만 39세 이하',
-                'amount': '최대 1억원 + 입주공간',
-                'period': '1년',
-                'org': '경기테크노파크',
-                'apply': '경기TP',
-                'deadline': (today + timedelta(days=30)).strftime('%Y-%m-%d'),
-                'url': 'https://www.gtp.or.kr'
-            },
-            {
-                'title': '경기도 소셜벤처 육성 지원',
-                'target': '사회적 기업 예비창업자',
-                'amount': '최대 5천만원',
-                'period': '6개월',
-                'org': '경기도 사회적경제지원센터',
-                'apply': '센터 방문',
-                'deadline': (today + timedelta(days=60)).strftime('%Y-%m-%d'),
-                'url': 'https://www.ggse.or.kr'
-            },
-            {
-                'title': '청년도약계좌 (경기도 추가 지원)',
-                'target': '만 19-34세 경기도 청년',
-                'amount': '월 70만원 + 경기도 추가 10만원',
-                'period': '5년',
-                'org': '경기도청 + 금융위원회',
-                'apply': '은행 방문',
-                'deadline': '상시',
-                'url': 'https://www.gg.go.kr'
+        # === K-Startup API 호출 ===
+        try:
+            api_url = "https://apis.data.go.kr/B552735/kisedKstartupService01/getBizInfoList"
+            params = {
+                "serviceKey": STARTUP_API_KEY,
+                "numOfRows": 20,
+                "pageNo": 1,
+                "resultType": "json"
             }
-        ]
+            
+            resp = requests.get(api_url, params=params, timeout=10)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                
+                # API 응답 파싱
+                if 'response' in data and 'body' in data['response']:
+                    items = data['response']['body'].get('items', {})
+                    
+                    # items가 list인 경우와 dict인 경우 둘 다 처리
+                    if isinstance(items, dict):
+                        items = items.get('item', [])
+                    
+                    if not isinstance(items, list):
+                        items = [items]
+                    
+                    for item in items[:10]:
+                        supports.append({
+                            'title': item.get('bizNm', '지원사업'),
+                            'target': item.get('trgtNm', '청년 창업자'),
+                            'amount': item.get('suprtAmt', '홈페이지 확인'),
+                            'period': item.get('bizPrd', '1년'),
+                            'org': item.get('orgNm', 'K-Startup'),
+                            'apply': 'K-Startup',
+                            'deadline': item.get('rcptEndDt', '상시'),
+                            'url': 'https://www.k-startup.go.kr'
+                        })
+        except:
+            pass
+        
+        # === API 실패 시 샘플 데이터 ===
+        if len(supports) == 0:
+            supports = [
+                {
+                    'title': '경기도 예비창업패키지',
+                    'target': '만 39세 이하 경기도 거주자',
+                    'amount': '최대 1억원',
+                    'period': '1년',
+                    'org': '경기도 + 중소벤처기업부',
+                    'apply': 'K-Startup',
+                    'deadline': (today + timedelta(days=45)).strftime('%Y-%m-%d'),
+                    'url': 'https://www.k-startup.go.kr'
+                },
+                {
+                    'title': '경기도 청년창업사관학교',
+                    'target': '만 39세 이하',
+                    'amount': '최대 1억원 + 입주공간',
+                    'period': '1년',
+                    'org': '경기테크노파크',
+                    'apply': '경기TP',
+                    'deadline': (today + timedelta(days=30)).strftime('%Y-%m-%d'),
+                    'url': 'https://www.gtp.or.kr'
+                },
+                {
+                    'title': '경기도 소셜벤처 육성 지원',
+                    'target': '사회적 기업 예비창업자',
+                    'amount': '최대 5천만원',
+                    'period': '6개월',
+                    'org': '경기도 사회적경제지원센터',
+                    'apply': '센터 방문',
+                    'deadline': (today + timedelta(days=60)).strftime('%Y-%m-%d'),
+                    'url': 'https://www.ggse.or.kr'
+                },
+                {
+                    'title': '청년도약계좌 (경기도 추가 지원)',
+                    'target': '만 19-34세 경기도 청년',
+                    'amount': '월 70만원 + 경기도 추가 10만원',
+                    'period': '5년',
+                    'org': '경기도청 + 금융위원회',
+                    'apply': '은행 방문',
+                    'deadline': '상시',
+                    'url': 'https://www.gg.go.kr'
+                }
+            ]
         
         # 나이 필터
         if age < 35:
@@ -536,10 +579,10 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
         result += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔗 추천 링크
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• K-Startup: https://www.k-startup.go.kr
-• 경기테크노파크: https://www.gtp.or.kr
-• 경기도 청년정책: https://www.gg.go.kr/youth
-• 경기도 사회적경제: https://www.ggse.or.kr
+- K-Startup: https://www.k-startup.go.kr
+- 경기테크노파크: https://www.gtp.or.kr
+- 경기도 청년정책: https://www.gg.go.kr/youth
+- 경기도 사회적경제: https://www.ggse.or.kr
 
 ⚠️ 신청 자격 및 서류는 반드시 공식 사이트에서 확인하세요!"""
         
@@ -548,7 +591,6 @@ async def startup_support_finder(age: int = 25, region: str = "경기도") -> st
         
     except Exception as e:
         return f"⚠️ 오류: {str(e)}\n💡 예시: startup_support_finder(25, '경기도')"
-
 
 # =========================
 # 4. 코딩대회 찾기 (전국)
@@ -1098,9 +1140,10 @@ if __name__ == "__main__":
 ║  {', '.join(GYEONGGI_CITIES[:6])}...   ║
 ╠══════════════════════════════════════════════════╣
 ║  🔑 API 키 설정 (.env 파일):                       ║
-║  GYEONGGI_API_KEY=your_key                        ║
-║  STARTUP_API_KEY=your_key                         ║
-║  HRD_API_KEY=your_key                             ║
+║  GYEONGGI_API_KEY=발급받은_키                     ║
+║  STARTUP_API_KEY=발급받은_키 (선택)               ║
+║                                                      ║
+║  💡 API 키 없어도 샘플 데이터로 작동합니다!        ║
 ╠══════════════════════════════════════════════════╣
 ║  💾 캐싱 전략:                                     ║
 ║  • 장학금: 1시간                                  ║
