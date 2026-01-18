@@ -105,30 +105,24 @@ async def crawl_wevity(keyword: str) -> List[Dict]:
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
         'Referer': 'https://www.wevity.com/'
     }
     
     search_keyword = keyword.replace("경기도", "경기").strip()
     
     try:
-        # 1차 시도
         url = "https://www.wevity.com/"
         params = {"c": "find", "s": "1", "gbn": "0", "gp": "1", "keyword": search_keyword}
         
         resp = requests.get(url, params=params, headers=headers, timeout=8)
-        resp.raise_for_status()
         soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # 선택자 개선
-        items = soup.select('ul.list_style li') or soup.select('div.card') or soup.select('.list-item')
+        items = soup.select('ul.list li')[1:]  # 🔥 첫 번째(헤더) 제외
         
         for item in items[:15]:
             try:
-                # 다양한 선택자 시도
-                title_elem = (item.select_one('.tit a') or 
-                             item.select_one('h3 a') or 
-                             item.select_one('a.title'))
+                title_elem = item.select_one('.tit a')
                 if not title_elem: continue
                 
                 title = title_elem.get_text(strip=True)
@@ -136,13 +130,13 @@ async def crawl_wevity(keyword: str) -> List[Dict]:
                 if not link.startswith('http'):
                     link = "https://www.wevity.com" + link
                 
-                org = item.select_one('.org, .company, .host')
-                dday = item.select_one('.day, .d-day, .deadline')
+                org_elem = item.select_one('.organ')
+                day_elem = item.select_one('.day')
                 
                 results.append({
                     'title': title,
-                    'org': org.get_text(strip=True) if org else "위비티",
-                    'deadline': dday.get_text(strip=True) if dday else "진행중",
+                    'org': org_elem.get_text(strip=True) if org_elem else "위비티",
+                    'deadline': day_elem.get_text(strip=True) if day_elem else "진행중",
                     'url': link,
                     'source': 'Wevity'
                 })
@@ -150,9 +144,9 @@ async def crawl_wevity(keyword: str) -> List[Dict]:
                 continue
 
     except Exception as e:
-        print(f"위비티 크롤링 실패: {e}")
+        print(f"1차 크롤링 에러: {e}")
     
-    # 2차 시도 (핵심 키워드)
+    # 2차 시도
     if not results:
         core_keyword = "장학금" if "장학" in keyword else "대외활동" if "대외" in keyword else "공모전"
         
@@ -160,11 +154,11 @@ async def crawl_wevity(keyword: str) -> List[Dict]:
             params['keyword'] = core_keyword
             resp = requests.get(url, params=params, headers=headers, timeout=8)
             soup = BeautifulSoup(resp.text, 'html.parser')
-            items = soup.select('ul.list_style li, div.card')[:10]
+            items = soup.select('ul.list li')[1:][:10]  # 🔥 헤더 제외
             
             for item in items:
                 try:
-                    title_elem = item.select_one('.tit a, h3 a')
+                    title_elem = item.select_one('.tit a')
                     if not title_elem: continue
                     
                     link = title_elem.get('href', '')
@@ -173,8 +167,8 @@ async def crawl_wevity(keyword: str) -> List[Dict]:
                     
                     results.append({
                         'title': title_elem.get_text(strip=True),
-                        'org': item.select_one('.org, .company').get_text(strip=True) if item.select_one('.org, .company') else "위비티",
-                        'deadline': item.select_one('.day, .d-day').get_text(strip=True) if item.select_one('.day, .d-day') else "진행중",
+                        'org': item.select_one('.organ').get_text(strip=True) if item.select_one('.organ') else "위비티",
+                        'deadline': item.select_one('.day').get_text(strip=True) if item.select_one('.day') else "진행중",
                         'url': link,
                         'source': f'Wevity({core_keyword})'
                     })
