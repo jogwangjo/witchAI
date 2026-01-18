@@ -301,7 +301,7 @@ async def gyeonggi_scholarship_finder(
 # 2. 경기도 공모전/소식 찾기 (API 수정)
 # =========================
 async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체") -> str:
-    """경기도 소식 현황 API 활용"""
+    """경기도 소식 현황 API 활용 - 샘플 데이터 없음"""
     try:
         cache_key = f"contest_{city}_{category}"
         cached_data = _cache.get(cache_key)
@@ -309,7 +309,6 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
             return cached_data + "\n\n💾 [캐시 데이터 - 2시간 이내]"
         
         contests = []
-        debug_info = []  # 디버깅 정보 수집
         
         # 경기도 소식 API 호출
         api_url = "https://openapi.gg.go.kr/GGNEWSSTUS"
@@ -320,152 +319,94 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
             "pSize": 1000
         }
         
-        # 디버깅 정보
-        debug_info.append(f"🔑 API KEY: {GYEONGGI_API_KEY[:10]}..." if len(GYEONGGI_API_KEY) > 10 else f"🔑 API KEY: {GYEONGGI_API_KEY}")
-        debug_info.append(f"🌐 URL: {api_url}")
-        
-        api_success = False
-        api_error = None
-        
+        # API 직접 호출 (에러 시 바로 리턴)
         try:
             resp = requests.get(api_url, params=params, timeout=15)
-            debug_info.append(f"📡 HTTP Status: {resp.status_code}")
             
-            if resp.status_code == 200:
-                data = resp.json()
-                debug_info.append(f"📦 Response Keys: {list(data.keys())}")
+            if resp.status_code != 200:
+                return f"❌ API 호출 실패: HTTP {resp.status_code}\n🔑 API KEY: {GYEONGGI_API_KEY[:10]}...\n🌐 URL: {api_url}"
+            
+            data = resp.json()
+            
+            if 'GGNEWSSTUS' not in data or len(data['GGNEWSSTUS']) < 2:
+                return f"❌ API 응답 구조 오류\n📦 Response: {list(data.keys())}"
+            
+            result_info = data['GGNEWSSTUS'][0]
+            result_code = result_info.get('RESULT', {}).get('CODE')
+            result_msg = result_info.get('RESULT', {}).get('MESSAGE')
+            
+            if result_code != 'INFO-000':
+                return f"❌ API 에러: {result_code} - {result_msg}\n🔑 사용한 KEY: {GYEONGGI_API_KEY[:10]}..."
+            
+            items = data['GGNEWSSTUS'][1].get('row', [])
+            
+            if not items:
+                return f"⚠️ API에서 데이터를 받았지만 항목이 0개입니다.\n📊 Total: {len(items)}개"
+            
+            # 공모전 필터링
+            for item in items:
+                title = item.get('TITLE', '')
+                cat_nm = item.get('CATEGORY_NM', '')
                 
-                if 'GGNEWSSTUS' in data and len(data['GGNEWSSTUS']) > 1:
-                    result_info = data['GGNEWSSTUS'][0]
-                    result_code = result_info.get('RESULT', {}).get('CODE')
-                    result_msg = result_info.get('RESULT', {}).get('MESSAGE')
-                    
-                    debug_info.append(f"📋 Result Code: {result_code}")
-                    debug_info.append(f"📋 Result Message: {result_msg}")
-                    
-                    if result_code == 'INFO-000':
-                        items = data['GGNEWSSTUS'][1].get('row', [])
-                        debug_info.append(f"✅ Total Items: {len(items)}")
-                        
-                        for item in items:
-                            title = item.get('TITLE', '')
-                            cat_nm = item.get('CATEGORY_NM', '')
-                            
-                            # 공모전 관련 키워드 필터링
-                            keywords = ['공모', '모집', '참가', '대회', '경진', '콘테스트', '선발', 
-                                       '지원', '신청', '접수', '이벤트', '페스티벌']
-                            
-                            if any(keyword in title or keyword in cat_nm for keyword in keywords):
-                                # 카테고리 필터
-                                if category != "전체" and category not in cat_nm and category not in title:
-                                    continue
-                                
-                                # 날짜 파싱
-                                begin_de = item.get('BEGIN_DE', '')
-                                end_de = item.get('END_DE', '')
-                                
-                                # 마감일 계산
-                                deadline = "미정"
-                                try:
-                                    if end_de and len(end_de) >= 8:
-                                        end_date = datetime.strptime(end_de[:8], '%Y%m%d')
-                                        days_left = (end_date - datetime.now()).days
-                                        if days_left >= 0:
-                                            deadline = f"D-{days_left}"
-                                        else:
-                                            continue  # 이미 마감된 것은 제외
-                                except:
-                                    pass
-                                
-                                contests.append({
-                                    'title': title,
-                                    'org': item.get('INST_NM', '경기도'),
-                                    'category': cat_nm,
-                                    'begin': begin_de,
-                                    'end': end_de,
-                                    'deadline': deadline,
-                                    'url': item.get('URL', ''),
-                                    'source': 'OpenAPI (실제 데이터)'
-                                })
-                        
-                        debug_info.append(f"🎯 Filtered Items: {len(contests)}")
-                        api_success = True
-                    else:
-                        # API 에러 응답
-                        api_error = f"API Error: {result_code} - {result_msg}"
-                        debug_info.append(f"❌ {api_error}")
-                else:
-                    api_error = "Invalid API response structure"
-                    debug_info.append(f"❌ {api_error}")
-            else:
-                api_error = f"HTTP Error: {resp.status_code}"
-                debug_info.append(f"❌ {api_error}")
+                # 공모전 관련 키워드
+                keywords = ['공모', '모집', '참가', '대회', '경진', '콘테스트', '선발', 
+                           '지원', '신청', '접수', '이벤트', '페스티벌', '공개', '경연']
                 
+                if any(keyword in title or keyword in cat_nm for keyword in keywords):
+                    # 카테고리 필터
+                    if category != "전체" and category not in cat_nm and category not in title:
+                        continue
+                    
+                    # 날짜 파싱
+                    begin_de = item.get('BEGIN_DE', '')
+                    end_de = item.get('END_DE', '')
+                    
+                    # 마감일 계산
+                    deadline = "미정"
+                    try:
+                        if end_de and len(end_de) >= 8:
+                            end_date = datetime.strptime(end_de[:8], '%Y%m%d')
+                            days_left = (end_date - datetime.now()).days
+                            if days_left >= 0:
+                                deadline = f"D-{days_left}"
+                            else:
+                                continue  # 마감된 것 제외
+                    except:
+                        pass
+                    
+                    contests.append({
+                        'title': title,
+                        'org': item.get('INST_NM', '경기도'),
+                        'category': cat_nm,
+                        'begin': begin_de,
+                        'end': end_de,
+                        'deadline': deadline,
+                        'url': item.get('URL', ''),
+                        'source': 'API 실제 데이터'
+                    })
+            
+            if not contests:
+                return f"""⚠️ 공모전 필터링 결과 0건
+
+📊 API 상태:
+✅ API 호출 성공
+✅ 총 {len(items)}개 소식 받음
+❌ 공모전 키워드 매칭 0건
+
+💡 해결책:
+- 카테고리를 "전체"로 시도
+- 키워드가 너무 엄격할 수 있음
+- API 데이터에 실제 공모전이 없을 수도 있음
+
+🔍 받은 소식 샘플 (처음 3개):
+{chr(10).join([f"- {items[i].get('TITLE', '')} ({items[i].get('CATEGORY_NM', '')})" for i in range(min(3, len(items)))])}"""
+            
         except requests.exceptions.Timeout:
-            api_error = "API Timeout (15초 초과)"
-            debug_info.append(f"❌ {api_error}")
+            return "❌ API 타임아웃 (15초 초과)"
         except requests.exceptions.RequestException as e:
-            api_error = f"Request Error: {str(e)}"
-            debug_info.append(f"❌ {api_error}")
+            return f"❌ API 요청 오류: {str(e)}"
         except Exception as e:
-            api_error = f"Unknown Error: {str(e)}"
-            debug_info.append(f"❌ {api_error}")
-        
-        # 디버깅 정보 문자열
-        debug_section = "\n".join(debug_info)
-        
-        # API 실패 시 샘플 데이터
-        if not api_success or len(contests) == 0:
-            today = datetime.now()
-            contests = [
-                {
-                    'title': '2025 경기도 청년 창업 아이디어 공모전',
-                    'org': '경기도청',
-                    'category': '창업/아이디어',
-                    'prize': '대상 1,000만원',
-                    'deadline': 'D-20',
-                    'date': (today + timedelta(days=20)).strftime('%Y-%m-%d'),
-                    'source': '샘플 데이터 (API 키 필요)'
-                },
-                {
-                    'title': '경기도 대학생 UX/UI 디자인 공모전',
-                    'org': '경기콘텐츠진흥원',
-                    'category': '디자인',
-                    'prize': '대상 500만원',
-                    'deadline': 'D-35',
-                    'date': (today + timedelta(days=35)).strftime('%Y-%m-%d'),
-                    'source': '샘플 데이터 (API 키 필요)'
-                },
-                {
-                    'title': '경기도 환경보호 아이디어 공모',
-                    'org': '경기도 환경국',
-                    'category': '환경/사회',
-                    'prize': '대상 300만원',
-                    'deadline': 'D-40',
-                    'date': (today + timedelta(days=40)).strftime('%Y-%m-%d'),
-                    'source': '샘플 데이터 (API 키 필요)'
-                }
-            ]
-        
-        # 카테고리 필터
-        if category != "전체":
-            contests = [c for c in contests if category in c.get('category', '')]
-        
-        if not contests:
-            return f"""🏆 경기도 공모전/행사 검색 결과 (0건)
-
-조건: 지역={city}, 카테고리={category}
-
-═══════════════════════════
-⚠️ 해당 조건의 공모전이 없습니다
-═══════════════════════════
-
-💡 팁: 카테고리를 "전체"로 변경해보세요
-
-═══════════════════════════
-🔧 API 디버깅 정보
-═══════════════════════════
-{debug_section}"""
+            return f"❌ 처리 오류: {str(e)}"
         
         # 마감일 정렬
         def get_deadline_days(c):
@@ -483,13 +424,7 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
 
 📍 지역: {city} | 카테고리: {category}
 🕐 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-📊 데이터 출처: 경기도 공공데이터
-{"⚠️ 주의: 샘플 데이터입니다. 실제 데이터는 API 키가 필요합니다." if not api_success else "✅ 실제 API 데이터"}
-
-═══════════════════════════
-🔧 API 디버깅 정보
-═══════════════════════════
-{debug_section}
+✅ 실제 API 데이터
 
 ═══════════════════════════
 🔥 마감임박 공모전
@@ -502,7 +437,6 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
    🏢 주관: {c['org']}
    📂 분야: {c.get('category', '미분류')}
    ⏰ 마감: {c.get('deadline', '미정')}
-   {f"💰 상금: {c['prize']}" if 'prize' in c else ""}
    {f"🔗 URL: {c['url']}" if c.get('url') else ""}
 
 """
@@ -520,8 +454,7 @@ async def gyeonggi_contest_finder(city: str = "전체", category: str = "전체"
         return result[:24000]
         
     except Exception as e:
-        return f"⚠️ 오류: {str(e)}\n💡 예시: gyeonggi_contest_finder('수원시', 'IT')"
-
+        return f"⚠️ 전체 오류: {str(e)}\n💡 예시: gyeonggi_contest_finder('수원시', 'IT')"
 # =========================
 # 3. 창업지원금 찾기
 # =========================
