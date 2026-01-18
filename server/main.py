@@ -96,25 +96,36 @@ CITY_NAMES = list(GYEONGGI_CITIES.keys()) + ["군포시", "광주시", "양주�
 
 
 # =========================
-# 🕷️ 통합 크롤러 (위비티)
+# 🕷️ 통합 크롤러 (위비티) - 수정됨
 # =========================
 async def crawl_wevity(keyword: str) -> List[Dict]:
-    """위비티 통합 검색 크롤러 (장학금/공모전/대외활동 모두 처리)"""
+    """위비티 통합 검색 크롤러 (인코딩 수정 + 안전장치 추가)"""
     results = []
+    
+    # 1. 검색어 다듬기 (수원시 -> 수원)
+    # '시/군/구' 같은 행정구역 명칭을 빼야 검색이 더 잘 됩니다.
+    search_keyword = keyword.replace("시 ", " ").replace("군 ", " ").strip()
+    
     try:
-        # 위비티 통합 검색 URL
-        url = f"https://www.wevity.com/?c=find&s=1&keyword={keyword}"
+        # URL과 파라미터 분리 (한글 인코딩 자동 처리)
+        base_url = "https://www.wevity.com/"
+        params = {
+            "c": "find",
+            "s": "1",
+            "keyword": search_keyword
+        }
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
         
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(base_url, params=params, headers=headers, timeout=10)
         soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # 검색 결과 아이템들 (테스트 완료된 선택자)
-        items = soup.select('.list li')[:15]
+        # 검색 결과 파싱
+        items = soup.select('.list li')
         
-        for item in items:
+        for item in items[:15]:  # 상위 15개만
             try:
                 title_elem = item.select_one('.tit a')
                 if not title_elem: continue
@@ -125,7 +136,6 @@ async def crawl_wevity(keyword: str) -> List[Dict]:
                 org_elem = item.select_one('.org')
                 org = org_elem.get_text(strip=True) if org_elem else "위비티"
                 
-                # 마감일 (D-Day)
                 dday_elem = item.select_one('.day') or item.select_one('.dday')
                 dday = dday_elem.get_text(strip=True) if dday_elem else "진행중"
 
@@ -139,11 +149,36 @@ async def crawl_wevity(keyword: str) -> List[Dict]:
             except:
                 continue
                 
+        # 2. [안전장치] 만약 검색 결과가 0건이면? -> '장학금' 전체 카테고리에서 긁어오기
+        if not results and "장학" in keyword:
+            print(f"⚠️ '{search_keyword}' 검색 결과 없음. 장학금 전체 목록을 가져옵니다.")
+            # 위비티 장학금 카테고리 URL (cidx=24: 대학생/일반인)
+            fallback_params = {"c": "find", "s": "1", "gub": "1", "cidx": "24"} 
+            resp = requests.get(base_url, params=fallback_params, headers=headers, timeout=10)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            items = soup.select('.list li')
+            
+            for item in items[:10]: # 10개만
+                try:
+                    title_elem = item.select_one('.tit a')
+                    if not title_elem: continue
+                    title = title_elem.get_text(strip=True)
+                    # 전체 목록에서라도 '수원'이 들어간 게 있는지 확인 (없으면 다 보여줌)
+                    # if "수원" in keyword and "수원" not in title: continue (너무 엄격해서 주석처리)
+                    
+                    results.append({
+                        'title': title,
+                        'org': item.select_one('.org').get_text(strip=True),
+                        'deadline': item.select_one('.day').get_text(strip=True),
+                        'url': "https://www.wevity.com" + title_elem['href'],
+                        'source': 'Wevity(전체)'
+                    })
+                except: continue
+
     except Exception as e:
         print(f"위비티 크롤링 실패: {e}")
         
     return results
-
 # =========================
 # 1️⃣ 장학금 찾기 (재단정보 + 위비티)
 # =========================
@@ -743,100 +778,61 @@ async def gyeonggi_recommend(profile: str) -> str:
 
 
 # =========================
-# MCP Tools Registry
+# Tools Registry (수정됨: 라우팅 정확도 개선)
 # =========================
 TOOLS_REGISTRY = {
     "gyeonggi_scholarship_finder": {
         "func": gyeonggi_scholarship_finder,
-        "description": "경기도 장학금 검색. 경기도 공공데이터 API를 활용하여 31개 시/군별 장학금 정보 제공. 실시간 업데이트",
+        "description": "경기도 및 전국의 장학금 검색. 대학생/청소년 대상 장학재단 공고 및 위비티 실시간 장학금 정보 제공",
         "schema": {
             "type": "object",
             "properties": {
                 "city": {
-                    "type": "string",
-                    "description": f"경기도 시/군 ({', '.join(list(GYEONGGI_CITIES.keys())[:10])}... 등 31개)",
+                    "type": "string", 
+                    "description": f"시/군 ({', '.join(list(GYEONGGI_CITIES.keys())[:5])}...)",
                     "default": "전체"
                 },
-                "grade": {
-                    "type": "string",
-                    "description": "학년 (초등학생/중학생/고등학생/대학생/전체)",
+                "grade": {"type": "string", "default": "전체"}
+            }
+        }
+    },
+    "gyeonggi_activity_finder": {
+        "func": gyeonggi_activity_finder,
+        # [핵심 수정] '대외활동' 키워드를 강력하게 넣고, 경기도 키워드도 처리할 수 있음을 명시
+        "description": "대외활동, 서포터즈, 공모전, 봉사활동, 동아리 검색. '경기도 대외활동'이나 '마케팅 서포터즈'처럼 스펙 쌓기용 활동을 찾을 때 사용 (위비티 크롤링)",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string", 
+                    "description": "검색 키워드 (예: 경기도 대외활동, 마케팅 공모전, 대학생 서포터즈)", 
                     "default": "전체"
                 }
-            },
-            "required": []
+            }
         }
     },
     "gyeonggi_event_finder": {
         "func": gyeonggi_event_finder,
-        "description": "경기도 공모전/행사 검색. 경기도 소식 API 활용. 공모전, 대회, 문화행사 등 실시간 정보 제공",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "city": {
-                    "type": "string",
-                    "description": "경기도 시/군 (전체/수원시/성남시 등)",
-                    "default": "전체"
-                },
-                "category": {
-                    "type": "string",
-                    "description": "카테고리 (IT/디자인/창업/환경/문화/전체)",
-                    "default": "전체"
-                }
-            },
-            "required": []
-        }
+        # [핵심 수정] 대외활동이 아님을 명시 (Negative Prompt 효과)
+        "description": "경기도 내 문화 행사, 축제, 박람회, 전시회, 공연 정보 검색. 단순 관람이나 놀러갈 곳을 찾을 때 사용 (대외활동/공모전/서포터즈 검색 아님)",
+        "schema": {"type": "object", "properties": {"city": {"type": "string"}}}
     },
     "startup_support_finder": {
         "func": startup_support_finder,
-        "description": "창업/청년지원금 검색. 창업진흥원 API 활용. 경기도 특화 창업지원금, 청년정책 정보 제공",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "age": {
-                    "type": "integer",
-                    "description": "나이 (만 나이)",
-                    "default": 25
-                },
-                "region": {
-                    "type": "string",
-                    "description": "지역 (경기도 기본)",
-                    "default": "경기도"
-                }
-            },
-            "required": []
-        }
+        "description": "창업 지원금 및 청년 창업 지원 사업 공고 검색 (K-Startup API)",
+        "schema": {"type": "object", "properties": {"age": {"type": "integer"}}}
     },
     "coding_competition_finder": {
         "func": coding_competition_finder,
-        "description": "코딩대회 일정 검색. Codeforces API 활용. 국내외 코딩대회, 알고리즘 경진대회 일정 제공",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "level": {
-                    "type": "string",
-                    "description": "난이도 (초급/중급/고급/전체)",
-                    "default": "전체"
-                }
-            },
-            "required": []
-        }
+        "description": "알고리즘 및 코딩 대회 일정 검색 (Codeforces)",
+        "schema": {"type": "object", "properties": {}}
     },
     "gyeonggi_recommend": {
         "func": gyeonggi_recommend,
-        "description": "경기도 학생 맞춤 추천. 거주 지역, 학년, 관심사를 분석하여 장학금/공모전/지원금/대회를 종합 추천",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "profile": {
-                    "type": "string",
-                    "description": "프로필 (예: '수원시 거주 대학생 3학년, 컴퓨터공학과, 창업 관심')"
-                }
-            },
-            "required": ["profile"]
-        }
+        "description": "사용자 프로필(학년, 거주지, 관심사)을 기반으로 장학금/대외활동/지원금을 종합 추천",
+        "schema": {"type": "object", "properties": {"profile": {"type": "string"}}}
     }
 }
-
 
 # =========================
 # MCP Request Handler
