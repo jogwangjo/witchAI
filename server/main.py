@@ -954,7 +954,7 @@ TOOLS_REGISTRY = {
             "properties": {
                 "city": {
                     "type": "string",
-                    "description": f"경기도 시/군 ({', '.join(GYEONGGI_CITIES[:10])}... 등 31개)",
+                    "description": f"경기도 시/군 ({', '.join(list(GYEONGGI_CITIES.keys())[:10])}... 등 31개)",
                     "default": "전체"
                 },
                 "grade": {
@@ -1217,58 +1217,5 @@ app = Starlette(
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     cache_stats = _cache.get_stats()
-    print(f"""
-╔══════════════════════════════════════════════════╗
-║  🎓 경기도 학생 기회 파인더 MCP v1.0               ║
-╠══════════════════════════════════════════════════╣
-║  🎯 타겟: 경기도 거주/재학 학생                    ║
-║  📡 Protocol: MCP 2025-03-26                      ║
-║  🔗 Port: {port}                                        ║
-║  🛠️  Tools: {len(TOOLS_REGISTRY)}개                                   ║
-║  💾 Cache: 활성화 ({cache_stats['total_entries']}개 항목)                      ║
-╠══════════════════════════════════════════════════╣
-║  📊 데이터 소스 (공공 API):                        ║
-║  ✅ 경기도_장학금 수혜 현황                        ║
-║  ✅ 경기도_소식 현황 (공모전)                      ║
-║  ✅ 창업진흥원_K-Startup                          ║
-║  ✅ Codeforces (코딩대회)                         ║
-╠══════════════════════════════════════════════════╣
-║  🏆 핵심 차별화:                                   ║
-║  • 경기도 31개 시/군 특화                         ║
-║  • 공공데이터 API 활용 (실시간)                   ║
-║  • 학생 라이프사이클 전체 커버                    ║
-║  • 지역 맞춤 필터링                               ║
-║  • 메모리 캐싱 (API 비용 절감)                    ║
-╠══════════════════════════════════════════════════╣
-║  📍 대상 지역 (31개 시/군):                        ║
-║  {', '.join(GYEONGGI_CITIES[:6])}...   ║
-╠══════════════════════════════════════════════════╣
-║  🔑 API 키 설정 (.env 파일):                       ║
-║  GYEONGGI_API_KEY=발급받은_키                     ║
-║  STARTUP_API_KEY=발급받은_키 (선택)               ║
-║                                                      ║
-║  💡 API 키 없어도 샘플 데이터로 작동합니다!        ║
-╠══════════════════════════════════════════════════╣
-║  💾 캐싱 전략:                                     ║
-║  • 장학금: 1시간                                  ║
-║  • 공모전: 2시간                                  ║
-║  • 지원금: 12시간                                 ║
-║  • 대회: 6시간                                    ║
-║  • AI추천: 30분                                   ║
-╚══════════════════════════════════════════════════╝
-
-🚀 서버 시작됨!
-
-📌 사용 예시:
-- gyeonggi_scholarship_finder(city="수원시", grade="대학생")
-- gyeonggi_contest_finder(city="성남시", category="IT")
-- startup_support_finder(age=25, region="경기도")
-- coding_competition_finder(level="중급")
-- gyeonggi_recommend(profile="수원시 대학생 컴퓨터공학")
-
-💡 API 키가 없어도 샘플 데이터로 작동합니다!
-하지만 실제 API 키 사용 시 실시간 데이터 제공!
-
-🔗 API 신청: https://data.gg.go.kr (경기도 공공데이터)
-    """)
+    city_sample = ', '.join(list(GYEONGGI_CITIES.keys())[:6])
     uvicorn.run(app, host="0.0.0.0", port=port, workers=1)
