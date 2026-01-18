@@ -43,11 +43,11 @@ load_dotenv()
 # API 키 설정 (환경변수에서 로드)
 # 1. 경기도 Open API 키 (장학금 + 소식 둘 다 사용)
 #    신청: https://data.gg.go.kr → 회원가입 → 데이터 신청 → 즉시 발급
-GYEONGGI_API_KEY = os.getenv("GYEONGGI_API_KEY", "sample_key")
+GYEONGGI_API_KEY = os.getenv("GYEONGGI_API_KEY", "16a785f639b14bab8f19ecafc2e537e4")
 
 # 2. 창업진흥원 API 키 (K-Startup 데이터)
 #    신청: https://www.data.go.kr → "창업진흥원" 검색 → 활용신청
-STARTUP_API_KEY = os.getenv("STARTUP_API_KEY", "sample_key")
+STARTUP_API_KEY = os.getenv("STARTUP_API_KEY", "65752ab89d855ec081a761cce8fc9b21ce961abaf77f416907b5093fe38c537a")
 
 # 3. Codeforces는 Public API라 키 불필요 ✅
 
