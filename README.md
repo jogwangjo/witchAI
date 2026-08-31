@@ -38,8 +38,8 @@ PlayMCP 공모전을 위한 AI 추천 MCP 서버 - AI 동향, 순위, Agent 추�
 
 ```bash
 # 저장소 클론
-git clone https://github.com/your-repo/ai-recommender-mcp.git
-cd ai-recommender-mcp
+git clone https://github.com/jogwangjo/witchAI.git
+cd witchAI
 
 # 가상환경 생성 및 활성화
 python -m venv venv
@@ -190,37 +190,6 @@ fly deploy
 }
 ```
 
-## 🏆 PlayMCP 공모전 준수사항
-
-### ✅ 필수 요구사항
-- [x] MCP 버전: 2025-03-26 이상
-- [x] Streamable HTTP 전송 방식
-- [x] Remote MCP 서버 (공개 URL)
-- [x] Stateless 아키텍처
-- [x] OAuth/커스텀 헤더 인증 지원
-
-### 📊 평가 기준 대응
-
-#### 1. 기능성 (30점)
-- **완성도**: 5개 핵심 기능 완벽 구현
-- **활용성**: 실제 AI 개발/연구에 즉시 활용 가능
-- **독창성**: AI 추천이라는 메타적 접근
-
-#### 2. 기술적 우수성 (30점)
-- **MCP 표준**: 2025-03-26 스펙 완벽 준수
-- **성능**: 비동기 처리, 캐싱으로 최적화
-- **안정성**: 에러 핸들링, Health check
-
-#### 3. 실용성 (20점)
-- **문제 해결**: AI 도구 선택의 어려움 해결
-- **사용자 경험**: 직관적인 인터페이스
-- **확장성**: 새로운 AI Agent 쉽게 추가 가능
-
-#### 4. 창의성 (20점)
-- **차별화**: AI를 추천하는 AI - 메타적 접근
-- **혁신성**: 실시간 동향 + 큐레이션 결합
-- **참신성**: AI 에코시스템 전체를 다루는 첫 MCP
-
 ## 🧪 테스트
 
 ### MCP Inspector로 검증
@@ -273,11 +242,6 @@ pytest tests/integration/ -v
 ## 📝 라이선스
 
 MIT License - 자유롭게 사용, 수정, 배포 가능
-
-## 📧 연락처
-
-- GitHub Issues: [링크]
-- Email: your-email@example.com
 
 ## 🙏 감사의 말
 
